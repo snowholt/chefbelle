@@ -5,18 +5,21 @@ I'm working on the Interactive Recipe & Kitchen Management Assistant Capstone pr
 
 ## Development Process
 
-### Step Implementation Approach
-- Follow the implementation plan in `prompts/plan.md`
-- Each step should be implemented in sequence, with clear documentation
-- Ensure each notebook section has both explanatory markdown and working code
-- Focus on demonstrating the Gen AI capabilities clearly
-- Ensure using the reference_codes/ notebooks as guidance for implementing steps.
-
 ### Implementing the Next Step
 - Review the previous progress report in `prompts/progress_report.md`
 - Implement the next step as specified in `prompts/nextstep.md`
 - After implementation, update the progress report with what was accomplished
 - Ensure each Gen AI capability is clearly highlighted and explained
+
+### Step Implementation Approach
+- Proceed to implement the next specified step by creating a notebook, and using the data that is available by `final/step1_data_setup.ipynb`  , using the provided full codebase and the previous progress report which contains completed steps so far.
+
+- Ensure each notebook section has both explanatory markdown and working code
+- Focus on demonstrating the Gen AI capabilities clearly
+- Focus using Google products, google api for implementing the requested tasks.
+- Ensure using the reference_codes/ notebooks as guidance for implementing steps.
+
+
 
 ## Progress Tracking
 
@@ -49,6 +52,9 @@ After implementing each step:
   - Show the implementation code
   - Demonstrate working examples
   - Discuss limitations and potential improvements
+
+### Assumptions & Clarity
+- If something appears missing from the plan, ask clear follow-up questions with proposed solutions or multiple choice options to clarify before coding.
 
 ### Testing Requirements
 - Include sample inputs and expected outputs

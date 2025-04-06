@@ -1,111 +1,114 @@
-# Next Implementation Step: Audio Input & Command Recognition
+# Next Implementation Step: Few-Shot Prompting for Recipe Customization
 
 ## Overview
-This document outlines the implementation details for Step 2 of the Interactive Recipe & Kitchen Management Assistant project, focusing on enabling voice commands through audio input and text command recognition.
+This document outlines the implementation details for Step 3 of the Interactive Recipe & Kitchen Management Assistant project, focusing on recipe customization through few-shot prompting.
 
 ## Step to Implement
-Step 2: Audio Input & Command Recognition with User Preferences
+Step 3: Few-Shot Prompting for Recipe Customization
 
 ## Description
-In this step, we will implement the voice interface that allows users to interact with the recipe assistant through spoken commands. We'll also develop a text-based input alternative and create a system for storing and retrieving user preferences. This step forms the foundation of the user interaction layer of our assistant.
+In this step, we will implement a few-shot prompting system to customize recipes according to user needs. We'll create example templates for common recipe customization scenarios such as dietary restrictions, ingredient substitutions, cooking method changes, and serving size adjustments. This will allow users to transform existing recipes to fit their specific requirements.
 
 ## Technical Requirements
-- Google Cloud Speech-to-Text API for voice recognition
-- Python libraries for audio recording and processing
-- JSON-based local storage for user preferences
-- Pandas for data manipulation
-- Regex for command parsing
-- Ensure using the reference_codes/ notebooks (particularly day-1-prompting.ipynb) as guidance for implementing steps
+- Gemini API for few-shot prompting implementation
+- Python libraries for JSON handling and text processing
+- Integration with the recipe dataset from Step 1
+- Connection to user preferences from Step 2
+- Ensure using the reference_codes/ notebooks (particularly day-1-prompting.ipynb) as guidance for implementation
 
 ## Gen AI Capabilities to Demonstrate
-- **Audio understanding**: Using Google Cloud Speech-to-Text API to convert user's spoken commands into text
-- **Structured output**: Creating structured format for commands and preferences
-- **Few-shot prompting**: Implementing a basic version of few-shot prompting to recognize different command variations
+- **Few-shot prompting**: Using example pairs to teach the model how to handle recipe customization requests
+- **Structured output**: Generating standardized JSON outputs for modified recipes
+- **Contextual understanding**: Adapting recipes based on context like dietary needs or available ingredients
 
 ## Implementation Approach
-1. Set up the Google Cloud Speech-to-Text API
-   - Create service account and credentials
-   - Configure Python environment for API access
-2. Implement audio recording and processing functions
-   - Create function to record audio from microphone
-   - Implement audio preprocessing (format conversion, noise reduction)
-3. Develop speech-to-text conversion
-   - Send audio to Google Cloud Speech-to-Text
-   - Retrieve and parse textual results
-4. Implement command confirmation flow
-   - Create function to verify understood commands with user
-   - Add correction mechanisms for misinterpreted speech
-5. Set up user preference storage
-   - Design JSON schema for user preferences
-   - Create functions to save/load preferences from local storage
-6. Develop command parsing logic
-   - Create functions to identify command intents
-   - Extract ingredients, dietary preferences, etc. from commands
-7. Implement text input alternative
-   - Create unified interface that works with both voice and text
-8. Connect all components with the Step 1 recipe dataset
-   - Enable querying recipes based on commands
+1. Design example prompts for recipe customization
+   - Create 5-7 example pairs of input requests and expected outputs
+   - Cover different customization scenarios (dietary, substitution, scaling, etc.)
+2. Implement few-shot prompting system
+   - Set up the Gemini API with appropriate parameters
+   - Create prompts that include examples and instructions
+3. Define structured output schema
+   - Design a JSON schema for modified recipes
+   - Include fields for modified ingredients, steps, and cooking time
+4. Develop substitution logic
+   - Create functions to handle common ingredient substitutions
+   - Build rules for scaling quantities and adjusting cooking times
+5. Implement customization validation
+   - Check if requested modifications are feasible
+   - Provide alternatives if exact customization isn't possible
+6. Connect with user preferences
+   - Integrate with the preference system from Step 2
+   - Apply stored dietary preferences automatically
+7. Create interactive interface
+   - Allow users to request customizations via text or voice
+   - Display before/after recipe comparisons
 
 ## Expected Inputs
-- Voice recordings of user commands (simulated via audio files for Kaggle environment)
-- Sample commands:
-  - "Find a recipe with chicken and pasta"
-  - "What can I make with tomatoes, cheese, and basil?"
-  - "Show me gluten-free dessert recipes"
-  - "Save my preference for vegetarian recipes"
+- Recipe customization requests such as:
+  - "I need a gluten-free version of this pasta recipe"
+  - "Make this recipe low-sodium but still flavorful"
+  - "I don't have eggs, what can I substitute?"
+  - "Convert this to an air fryer recipe"
+  - "Make this recipe for 8 people instead of 4"
+- Recipe IDs or titles to be customized
+- Optional user preferences to consider
 
 ## Expected Outputs
-- Transcribed text from audio input
-- Confirmation of understood commands
-- Structured command representations (JSON format):
+- Structured recipe customization in JSON format:
   ```json
   {
-    "intent": "find_recipe",
-    "ingredients": ["chicken", "pasta"],
-    "dietary_restrictions": [],
-    "meal_type": null
+    "original_recipe": {
+      "title": "Classic Chocolate Chip Cookies",
+      "ingredients": ["flour", "butter", "sugar", "eggs", "chocolate chips"],
+      "steps": ["Mix dry ingredients", "Cream butter and sugar", "Add eggs", "Fold in chocolate chips", "Bake"]
+    },
+    "customized_recipe": {
+      "title": "Gluten-Free Chocolate Chip Cookies",
+      "ingredients": ["gluten-free flour", "butter", "sugar", "eggs", "chocolate chips"],
+      "steps": ["Mix dry ingredients", "Cream butter and sugar", "Add eggs", "Fold in chocolate chips", "Bake for 2 extra minutes"],
+      "modifications": [
+        {"type": "substitution", "original": "flour", "replacement": "gluten-free flour"},
+        {"type": "cooking_time", "change": "+2 minutes"}
+      ]
+    },
+    "customization_notes": "Gluten-free flour may result in a slightly different texture. Consider adding 1/4 tsp xanthan gum if available."
   }
   ```
-- User preference storage in JSON format:
-  ```json
-  {
-    "dietary_preferences": ["vegetarian"],
-    "favorite_recipes": [123, 456],
-    "avoided_ingredients": ["cilantro"]
-  }
-  ```
+- Human-readable explanations of the modifications made
+- Visual comparison between original and modified recipes
 
 ## Success Criteria
-- Successfully transcribe at least 90% of clearly spoken commands
-- Correctly identify intent in at least 85% of commands
-- Extract key entities (ingredients, dietary preferences) from commands
-- Store and retrieve user preferences correctly
-- Provide confirmation and correction mechanisms for misunderstood commands
-- Ensure consistent experience between voice and text inputs
+- Successfully handle at least 5 different types of customization requests
+- Generate valid, executable recipe modifications
+- Maintain the essence and flavor profile of the original recipe
+- Provide clear explanations for why each modification was made
+- Achieve at least 85% user satisfaction with customization results (simulated for demonstration)
 
 ## Testing Approach
-- Test with a variety of voice commands (different phrasings, accents)
-- Test intent recognition with diverse command structures
-- Verify entity extraction with different ingredient lists
-- Test preference storage and retrieval for consistency
-- Validate command confirmation flow with deliberately ambiguous commands
+- Test with diverse recipe types (baking, cooking, different cuisines, etc.)
+- Try multiple customization types (dietary, ingredient substitution, etc.)
+- Verify the feasibility of the modified recipes
+- Check edge cases like multiple simultaneous modifications
+- Validate the structured output format against the defined schema
 
 ## Documentation Requirements
-- Clear explanation of audio processing pipeline
-- Documentation of Google Cloud Speech-to-Text integration
-- Description of command parsing methodology
-- Examples of successful command recognition
-- Explanation of user preference storage structure
-- Demonstration of the confirmation flow
+- Clear explanation of the few-shot prompting methodology
+- Examples of successful recipe customizations
+- Documentation of the JSON schema for customized recipes
+- Explanation of the customization logic and rules
+- Demonstration of different customization types
+- Comparison visualizations of original vs. modified recipes
 
 ## Integration with Previous Steps
-- Connect to recipe dataset from Step 1
-- Ensure commands can query and filter recipes based on ingredients and dietary tags
-- Prepare for integration with few-shot prompting in Step 3
+- Use recipe data from Step 1 as the source for customization
+- Leverage user preferences from Step 2 to inform customization choices
+- Maintain the same command structure from Step 2 for consistency
 
 ## Points to Consider
-- In Kaggle environment, simulating microphone input may be challenging; consider using pre-recorded audio files
-- Prepare for handling ambiguous commands (e.g., "Find a pasta recipe" - what kind of pasta?)
-- Consider approximate matching for ingredients (e.g., "tomato" should match "cherry tomatoes")
-- Design user preference storage for easy expansion in future steps
-- Consider how to handle compound commands ("Find a chicken recipe and save it to my favorites")
+- Account for complex substitutions that might require multiple ingredients
+- Consider nutrition impact of substitutions when possible
+- Handle cases where exact substitutions aren't possible
+- Provide alternatives when a customization might significantly impact taste
+- Consider cooking technique changes required by substitutions (different temperatures, times)
+- Make sure scaled recipes adjust both ingredients and cooking containers/times
