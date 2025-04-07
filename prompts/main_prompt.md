@@ -9,7 +9,7 @@ I'm working on the Interactive Recipe & Kitchen Management Assistant Capstone pr
 - Review the previous progress report in `prompts/progress_report.md`
 - Implement the next step as specified in `prompts/nextstep.md`
 - After implementation, update the progress report with what was accomplished
-- Ensure each Gen AI capability is clearly highlighted and explained
+- Ensure each Gen AI capability is clearly highlighted and explained,
 
 ### Step Implementation Approach
 - Proceed to implement the next specified step by creating a notebook, and using the data that is available by `final/step1_data_setup.ipynb`  , using the provided full codebase and the previous progress report which contains completed steps so far.

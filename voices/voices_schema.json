@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "voices": [
+    {
+      "file_path": "voices/cake.ogg",
+      "tag": "Cake Recipe",
+      "language": "en",
+      "category": "desserts",
+      "duration_seconds": 45,
+      "description": "Voice instruction for baking a cake",
+      "keywords": ["cake", "baking", "dessert", "recipe"],
+      "recorded_date": "2025-03-15",
+      "speaker_id": "user1",
+      "is_processed": false
+    },
+    {
+      "file_path": "voices/test.wav",
+      "tag": "Test Recording",
+      "language": "en",
+      "category": "test",
+      "duration_seconds": 12,
+      "description": "Test voice recording for the system",
+      "keywords": ["test", "sample"],
+      "recorded_date": "2025-04-01",
+      "speaker_id": "user2",
+      "is_processed": true
+    },
+    {
+      "file_path": "voices/test.ogg",
+      "tag": "Another Test",
+      "language": "es",
+      "category": "test",
+      "duration_seconds": 18,
+      "description": "Spanish test voice recording",
+      "keywords": ["test", "spanish", "sample"],
+      "recorded_date": "2025-04-02",
+      "speaker_id": "user3",
+      "is_processed": false
+    }
+  ],
+  "categories": [
+    {
+      "id": "desserts",
+      "name": "Desserts",
+      "description": "Sweet recipes and dessert instructions",
+      "icon": "🍰"
+    },
+    {
+      "id": "main_dishes",
+      "name": "Main Dishes",
+      "description": "Primary meal recipes and instructions",
+      "icon": "🍲"
+    },
+    {
+      "id": "test",
+      "name": "Test Recordings",
+      "description": "Test recordings for system validation",
+      "icon": "🧪"
+    }
+  ],
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "is_default": true
+    },
+    {
+      "code": "es",
+      "name": "Spanish",
+      "is_default": false
+    },
+    {
+      "code": "fr",
+      "name": "French",
+      "is_default": false
+    }
+  ],
+  "speakers": [
+    {
+      "id": "user1",
+      "name": "Primary User",
+      "preferences": {
+        "preferred_language": "en"
+      }
+    },
+    {
+      "id": "user2",
+      "name": "Secondary User",
+      "preferences": {
+        "preferred_language": "en"
+      }
+    },
+    {
+      "id": "user3",
+      "name": "Guest User",
+      "preferences": {
+        "preferred_language": "es"
+      }
+    }
+  ]
+}
