@@ -421,6 +421,23 @@ def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataF
     # Set environment variable to avoid tokenizer warnings
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     
+    # Check for existing IDs to avoid duplicates
+    try:
+        # Get count of existing items
+        existing_count = recipe_collection.count()
+        if existing_count > 0:
+            print(f"Found {existing_count} existing recipes in ChromaDB collection")
+            print("Clearing existing recipes to avoid duplicates...")
+            # Get all existing IDs
+            existing_ids = recipe_collection.get()['ids']
+            # Delete them in batches to avoid memory issues
+            batch_size = 5000
+            for i in range(0, len(existing_ids), batch_size):
+                recipe_collection.delete(ids=existing_ids[i:i+batch_size])
+            print("Existing recipes cleared successfully")
+    except Exception as e:
+        print(f"Warning when checking existing recipes: {e}")
+    
     # Determine batch size based on available memory
     total_rows = len(vectorized_recipes_df)
     batch_size = 2000  # A reasonable batch size to avoid memory issues
@@ -431,6 +448,9 @@ def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataF
     
     # Initialize counter for added records
     count = 0
+    # Track duplicates to suppress repetitive warnings
+    duplicates_warning_count = 0
+    max_warnings = 5  # Only show first few warnings
     
     # Process batches sequentially to avoid database write errors
     with tqdm(total=len(batches), desc="Processing recipe batches") as pbar:
@@ -472,14 +492,37 @@ def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataF
                     })
                     documents.append(combined_text)
                 
-                # Add to ChromaDB in a single batch
+                # Add to ChromaDB in a single batch, with duplicate handling
                 if ids:
-                    recipe_collection.add(
-                        ids=ids,
-                        metadatas=metadatas,
-                        documents=documents
-                    )
-                    count += len(ids)
+                    try:
+                        recipe_collection.add(
+                            ids=ids,
+                            metadatas=metadatas,
+                            documents=documents
+                        )
+                        count += len(ids)
+                    except Exception as batch_error:
+                        if "already exists" in str(batch_error).lower():
+                            # Handle duplicate IDs by adding them one by one
+                            duplicates_warning_count += 1
+                            if duplicates_warning_count <= max_warnings:
+                                print(f"Warning: Duplicate IDs found, adding one by one (warning {duplicates_warning_count}/{max_warnings})")
+                            
+                            # Try adding one by one to skip duplicates
+                            for i in range(len(ids)):
+                                try:
+                                    recipe_collection.add(
+                                        ids=[ids[i]],
+                                        metadatas=[metadatas[i]],
+                                        documents=[documents[i]]
+                                    )
+                                    count += 1
+                                except Exception:
+                                    # Skip this item if it's a duplicate
+                                    pass
+                        else:
+                            # For other errors, print the message
+                            print(f"Error adding batch: {batch_error}")
             except Exception as e:
                 print(f"Error processing batch: {str(e)}")
             
@@ -881,30 +924,35 @@ def export_chromadb_to_disk(chroma_client, vector_db_path=VECTOR_DB_PATH):
         # Make sure the directory exists with proper permissions
         os.makedirs(vector_db_path, exist_ok=True)
         
-        # Get all collection names
-        collection_names = [c.name for c in chroma_client.list_collections()]
+        # Get collection names - in v0.6.0, list_collections returns just the names
+        collection_names = chroma_client.list_collections()
         print(f"Found {len(collection_names)} collections to export: {collection_names}")
         
         for collection_name in collection_names:
-            # Get the collection
-            collection = chroma_client.get_collection(name=collection_name)
-            
-            # Get all data from the collection
-            all_data = collection.get(include=['embeddings', 'documents', 'metadatas'])
-            
-            if not all_data['ids']:
-                print(f"Collection {collection_name} is empty, skipping export")
-                continue
+            try:
+                # Get the collection - API change in v0.6.0
+                collection = chroma_client.get_collection(name=collection_name)
                 
-            # Save the collection data to a pickle file
-            collection_path = os.path.join(vector_db_path, f"{collection_name}.pkl")
-            with open(collection_path, 'wb') as f:
-                import pickle
-                pickle.dump(all_data, f)
+                # Get all data from the collection
+                all_data = collection.get(include=['embeddings', 'documents', 'metadatas'])
+                
+                if not all_data['ids'] or len(all_data['ids']) == 0:
+                    print(f"Collection {collection_name} is empty, skipping export")
+                    continue
+                    
+                # Save the collection data to a pickle file
+                collection_path = os.path.join(vector_db_path, f"{collection_name}.pkl")
+                with open(collection_path, 'wb') as f:
+                    import pickle
+                    pickle.dump(all_data, f)
+                
+                print(f"✅ Successfully exported collection {collection_name} with {len(all_data['ids'])} items")
+            except Exception as inner_error:
+                print(f"Error exporting collection {collection_name}: {inner_error}")
+                # Continue with other collections even if one fails
+                continue
             
-            print(f"✅ Successfully exported collection {collection_name} with {len(all_data['ids'])} items")
-            
-        print("All collections exported successfully!")
+        print("Collections export process completed!")
         return True
     except Exception as e:
         print(f"Error exporting ChromaDB to disk: {e}")
