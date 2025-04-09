@@ -1,33 +1,40 @@
-# Step 3: Recipe Customization with Function Calling and Hybrid Storage
-# Interactive Recipe & Kitchen Management Assistant
-
+# Import required libraries
 import os
 import json
 import numpy as np
 import pandas as pd
 import sqlite3
 import chromadb
-from chromadb.utils import embedding_functions
-from typing import List, Dict, Any, Tuple, Optional
-from IPython.display import display, Markdown
-import matplotlib.pyplot as plt
-import seaborn as sns
-from google import genai
+from typing import Dict, List, Any, Optional, Tuple, Union
 
-# Set up Google API credentials from environment variable
-# In a real implementation, use a more secure approach for API keys
-API_KEY = os.environ.get("GOOGLE_API_KEY", "YOUR_API_KEY_HERE")
-genai.configure(api_key=API_KEY)
+# Import embedding functions based on ChromaDB version
+try:
+    # For newer versions of ChromaDB
+    from chromadb.utils import embedding_functions
+except ImportError:
+    try:
+        # For older versions of ChromaDB
+        from chromadb import embedding_functions
+    except ImportError:
+        print("Warning: Could not import embedding_functions from ChromaDB. Using default embedding function.")
+
+print("# Step 3: Recipe Customization with Function Calling and Hybrid Storage")
+print("## Setting up the hybrid database architecture")
+
+
 
 print("# Step 3: Recipe Customization with Function Calling and Hybrid Storage")
 print("## Setting up the hybrid database architecture")
 
 # Define paths and connection variables
-DB_PATH = "recipes_db.sqlite"
-SAMPLE_DATA_PATH = "sample_recipes.json"  # For demonstration purposes
+DB_PATH = "kitchen_db.sqlite"
+VECTOR_DB_PATH = "vector_db"  # Directory where ChromaDB will store its persistent data
+
+# Create directories if they don't exist
+os.makedirs(VECTOR_DB_PATH, exist_ok=True)
 
 # ============================================================
-# PART 1: Hybrid Database Setup
+# PART 1.1: Hybrid Database Setup
 # ============================================================
 
 def setup_sqlite_database(db_path: str = DB_PATH):
@@ -37,22 +44,23 @@ def setup_sqlite_database(db_path: str = DB_PATH):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # Create recipes table
+    # Create recipes table with updated columns to match dataset
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS recipes (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         minutes INTEGER,
+        contributor_id INTEGER,
         submitted TEXT,
-        description TEXT,
+        tags TEXT,            -- JSON array of tags
+        nutrition TEXT,       -- JSON object with nutrition info
         n_steps INTEGER,
         steps TEXT,           -- JSON array of steps
-        n_ingredients INTEGER,
+        description TEXT,
         ingredients TEXT,     -- JSON array of ingredients
+        n_ingredients INTEGER,
         cuisine_type TEXT,
-        nutrition TEXT,       -- JSON object with nutrition info
-        rating REAL,
-        n_ratings INTEGER
+        dietary_tags TEXT     -- JSON array of dietary tags
     )
     ''')
     
@@ -69,22 +77,22 @@ def setup_sqlite_database(db_path: str = DB_PATH):
     )
     ''')
     
-    # Create nutrition facts table
+    # Create nutrition facts table with column names matching the dataset
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS nutrition (
         food TEXT PRIMARY KEY,
         food_normalized TEXT,
-        calories REAL,
-        fat REAL,
-        protein REAL,
-        carbs REAL,
-        fiber REAL,
-        sugar REAL,
-        sodium REAL,
-        calcium REAL,
-        iron REAL,
-        vitamin_c REAL,
-        vitamin_a REAL
+        vitamin_c REAL,         -- Vitamin C
+        vitamin_b11 REAL,       -- Vitamin B11
+        sodium REAL,            -- Sodium
+        calcium REAL,           -- Calcium
+        carbohydrates REAL,     -- Carbohydrates
+        iron REAL,              -- Iron
+        caloric_value REAL,     -- Caloric Value
+        sugars REAL,            -- Sugars
+        dietary_fiber REAL,     -- Dietary Fiber
+        fat REAL,               -- Fat
+        protein REAL            -- Protein
     )
     ''')
     
@@ -107,7 +115,12 @@ def setup_sqlite_database(db_path: str = DB_PATH):
         allergies TEXT,             -- JSON array
         favorite_cuisines TEXT,     -- JSON array
         disliked_ingredients TEXT,  -- JSON array
-        health_goals TEXT           -- JSON object
+        health_goals TEXT,          -- JSON object
+        techniques TEXT,            -- JSON array of techniques
+        items TEXT,                 -- JSON array of items
+        n_items INTEGER,            -- Number of items
+        ratings TEXT,               -- JSON object of ratings
+        n_ratings INTEGER           -- Number of ratings
     )
     ''')
     
@@ -115,15 +128,21 @@ def setup_sqlite_database(db_path: str = DB_PATH):
     print("SQLite database setup complete!")
     return conn
 
-def setup_vector_database():
+def setup_vector_database(vector_db_path=VECTOR_DB_PATH):
     """Set up ChromaDB for vector embeddings storage."""
-    print("Setting up ChromaDB for vector storage...")
+    print(f"Setting up ChromaDB for vector storage at: {vector_db_path}")
     
-    # Initialize ChromaDB client
-    chroma_client = chromadb.Client()
+    # Initialize ChromaDB client with persistent storage
+    chroma_client = chromadb.PersistentClient(path=vector_db_path)
     
     # Set up embeddings function - use the all-MiniLM model
-    embedding_function = embedding_functions.DefaultEmbeddingFunction()
+    try:
+        embedding_function = embedding_functions.DefaultEmbeddingFunction()
+    except (AttributeError, NameError):
+        # Fall back to using no embedding function
+        # The user will need to provide pre-computed embeddings
+        print("Warning: DefaultEmbeddingFunction not available. Using None.")
+        embedding_function = None
     
     # Create collections
     recipe_collection = chroma_client.create_collection(
@@ -141,931 +160,528 @@ def setup_vector_database():
     print("ChromaDB vector database setup complete!")
     return chroma_client, recipe_collection, user_collection
 
-def load_sample_data(db_conn, recipe_collection):
-    """Load sample data for demonstration purposes."""
-    print("Loading sample recipe data...")
-    
-    # For demonstration, we'll create a small set of sample recipes
-    sample_recipes = [
-        {
-            "id": 1,
-            "name": "Creamy Garlic Pasta",
-            "minutes": 30,
-            "submitted": "2022-01-15",
-            "description": "A rich and creamy pasta dish with garlic and parmesan.",
-            "n_steps": 5,
-            "steps": json.dumps([
-                "Boil pasta according to package directions.",
-                "In a pan, sauté minced garlic in butter until fragrant.",
-                "Add heavy cream and bring to a simmer.",
-                "Stir in grated parmesan cheese until smooth.",
-                "Toss with cooked pasta and garnish with parsley."
-            ]),
-            "n_ingredients": 7,
-            "ingredients": json.dumps([
-                "pasta", "butter", "garlic", "heavy cream", 
-                "parmesan cheese", "salt", "parsley"
-            ]),
-            "cuisine_type": "italian",
-            "nutrition": json.dumps({
-                "calories": 450, "fat": 28, "protein": 12, 
-                "carbs": 42, "fiber": 2, "sugar": 3
-            }),
-            "rating": 4.7,
-            "n_ratings": 235
-        },
-        {
-            "id": 2,
-            "name": "Vegetable Stir Fry",
-            "minutes": 20,
-            "submitted": "2022-02-20",
-            "description": "A quick and healthy vegetable stir fry with soy sauce.",
-            "n_steps": 4,
-            "steps": json.dumps([
-                "Heat oil in a wok or large pan over high heat.",
-                "Add vegetables and stir fry for 3-4 minutes until crisp-tender.",
-                "Add soy sauce, ginger, and garlic, stir to combine.",
-                "Serve over rice or noodles if desired."
-            ]),
-            "n_ingredients": 8,
-            "ingredients": json.dumps([
-                "broccoli", "bell peppers", "carrots", "snap peas", 
-                "garlic", "ginger", "soy sauce", "vegetable oil"
-            ]),
-            "cuisine_type": "asian",
-            "nutrition": json.dumps({
-                "calories": 180, "fat": 7, "protein": 5, 
-                "carbs": 25, "fiber": 6, "sugar": 8
-            }),
-            "rating": 4.5,
-            "n_ratings": 187
-        },
-        {
-            "id": 3,
-            "name": "Classic Beef Lasagna",
-            "minutes": 90,
-            "submitted": "2022-03-05",
-            "description": "A hearty beef lasagna with layers of pasta, meat sauce, and cheese.",
-            "n_steps": 7,
-            "steps": json.dumps([
-                "Brown ground beef with onions and garlic.",
-                "Add tomato sauce and seasonings, simmer for 15 minutes.",
-                "In a bowl, mix ricotta cheese with egg and herbs.",
-                "Layer lasagna noodles, meat sauce, ricotta mixture, and mozzarella in a baking dish.",
-                "Repeat layers, ending with cheese on top.",
-                "Cover with foil and bake at 375°F for 25 minutes.",
-                "Remove foil and bake for another 10 minutes until cheese is golden."
-            ]),
-            "n_ingredients": 12,
-            "ingredients": json.dumps([
-                "ground beef", "onion", "garlic", "tomato sauce", 
-                "lasagna noodles", "ricotta cheese", "mozzarella cheese", 
-                "parmesan cheese", "egg", "basil", "oregano", "salt"
-            ]),
-            "cuisine_type": "italian",
-            "nutrition": json.dumps({
-                "calories": 520, "fat": 27, "protein": 32, 
-                "carbs": 35, "fiber": 3, "sugar": 7
-            }),
-            "rating": 4.8,
-            "n_ratings": 312
-        },
-        {
-            "id": 4,
-            "name": "Vegan Buddha Bowl",
-            "minutes": 25,
-            "submitted": "2022-04-15",
-            "description": "A nutritious vegan bowl with grains, vegetables, and tahini dressing.",
-            "n_steps": 5,
-            "steps": json.dumps([
-                "Cook quinoa according to package directions.",
-                "Roast sweet potatoes, chickpeas, and kale in the oven until crispy.",
-                "Prepare tahini dressing by mixing tahini, lemon juice, and water.",
-                "Assemble bowl with quinoa, roasted vegetables, and avocado.",
-                "Drizzle with tahini dressing and sprinkle with sesame seeds."
-            ]),
-            "n_ingredients": 9,
-            "ingredients": json.dumps([
-                "quinoa", "sweet potatoes", "chickpeas", "kale", 
-                "avocado", "tahini", "lemon juice", "sesame seeds", "olive oil"
-            ]),
-            "cuisine_type": "mediterranean",
-            "nutrition": json.dumps({
-                "calories": 380, "fat": 18, "protein": 12, 
-                "carbs": 48, "fiber": 12, "sugar": 6
-            }),
-            "rating": 4.6,
-            "n_ratings": 158
-        }
-    ]
-    
-    cursor = db_conn.cursor()
-    
-    # Insert sample recipes into the database
-    for recipe in sample_recipes:
-        cursor.execute('''
-        INSERT OR REPLACE INTO recipes 
-        (id, name, minutes, submitted, description, n_steps, steps, 
-         n_ingredients, ingredients, cuisine_type, nutrition, rating, n_ratings) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            recipe["id"], recipe["name"], recipe["minutes"], 
-            recipe["submitted"], recipe["description"], recipe["n_steps"], 
-            recipe["steps"], recipe["n_ingredients"], recipe["ingredients"], 
-            recipe["cuisine_type"], recipe["nutrition"], recipe["rating"], 
-            recipe["n_ratings"]
-        ))
-    
-    db_conn.commit()
-    
-    # Generate and store embeddings for each recipe
-    for recipe in sample_recipes:
-        # Create embedding for recipe name
-        recipe_collection.add(
-            ids=[f"name_{recipe['id']}"],
-            documents=[recipe["name"]],
-            metadatas=[{"recipe_id": recipe["id"], "type": "name"}]
-        )
-        
-        # Create embedding for recipe ingredients
-        ingredients_text = ", ".join(json.loads(recipe["ingredients"]))
-        recipe_collection.add(
-            ids=[f"ingredients_{recipe['id']}"],
-            documents=[ingredients_text],
-            metadatas=[{"recipe_id": recipe["id"], "type": "ingredients"}]
-        )
-        
-        # Create embedding for recipe steps
-        steps_text = " ".join(json.loads(recipe["steps"]))
-        recipe_collection.add(
-            ids=[f"steps_{recipe['id']}"],
-            documents=[steps_text],
-            metadatas=[{"recipe_id": recipe["id"], "type": "steps"}]
-        )
-    
-    print(f"Loaded {len(sample_recipes)} sample recipes with embeddings!")
-
 # ============================================================
-# PART 2: Database Query Functions
+# PART 1.2: Load DataFrames into Databases
 # ============================================================
 
-def list_tables(conn):
-    """List all tables in the SQLite database."""
+def load_recipes_to_sqlite(conn: sqlite3.Connection, recipes_df: pd.DataFrame) -> None:
+    """Load recipes dataframe into the SQLite database."""
+    print(f"Loading {len(recipes_df)} recipes into SQLite...")
+    
+    # Ensure JSON columns are properly serialized
+    recipes_df = recipes_df.copy()
+    
+    # Fill NULL values in the name column with a default value to satisfy NOT NULL constraint
+    if 'name' in recipes_df.columns:
+        recipes_df['name'] = recipes_df['name'].fillna('Unnamed Recipe')
+        print(f"Filled {recipes_df['name'].isna().sum()} NULL values in name column with 'Unnamed Recipe'")
+    
+    # Handle JSON serialization for relevant columns
+    json_columns = ['tags', 'steps', 'ingredients', 'nutrition', 'normalized_ingredients', 'dietary_tags']
+    for col in json_columns:
+        if col in recipes_df.columns:
+            # Use a safer approach to handle all data types
+            def serialize_json(x):
+                if isinstance(x, (list, dict)):
+                    return json.dumps(x)
+                elif isinstance(x, np.ndarray):
+                    return json.dumps(x.tolist())
+                elif pd.isna(x):
+                    return None
+                else:
+                    try:
+                        # Try to convert to JSON - if it fails, convert to string
+                        return json.dumps(x)
+                    except (TypeError, ValueError):
+                        return str(x)
+            
+            recipes_df[col] = recipes_df[col].apply(serialize_json)
+    
+    # Get existing table columns
     cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = cursor.fetchall()
-    return [table[0] for table in tables]
-
-def describe_table(conn, table_name):
-    """Describe the schema of a specified table."""
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({table_name});")
-    schema = cursor.fetchall()
-    return [(col[1], col[2]) for col in schema]
-
-def execute_query(conn, sql):
-    """Execute an SQL query and return the results."""
-    cursor = conn.cursor()
-    cursor.execute(sql)
-    return cursor.fetchall()
-
-def get_recipe_by_id(conn, recipe_id):
-    """Get a recipe by its ID with all details."""
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,))
-    recipe_data = cursor.fetchone()
-    
-    if not recipe_data:
-        return None
-    
-    columns = [col[0] for col in cursor.description]
-    recipe = dict(zip(columns, recipe_data))
-    
-    # Parse JSON fields
-    for field in ["steps", "ingredients", "nutrition"]:
-        if recipe[field]:
-            recipe[field] = json.loads(recipe[field])
-    
-    return recipe
-
-def search_recipes_by_text(recipe_collection, query_text, n_results=5):
-    """Search recipes using vector similarity on text."""
-    results = recipe_collection.query(
-        query_texts=[query_text],
-        n_results=n_results
-    )
-    
-    # Extract the recipe IDs
-    recipe_ids = []
-    for metadata in results['metadatas'][0]:
-        if 'recipe_id' in metadata:
-            recipe_id = metadata['recipe_id']
-            if recipe_id not in recipe_ids:
-                recipe_ids.append(recipe_id)
-    
-    return recipe_ids
-
-def search_recipes_by_ingredients(conn, recipe_collection, ingredients, n_results=5):
-    """Search for recipes that contain the specified ingredients using embeddings."""
-    # Convert ingredients list to a single string for embedding
-    ingredients_text = ", ".join(ingredients)
-    
-    # Query the vector database
-    results = recipe_collection.query(
-        query_texts=[ingredients_text],
-        n_results=n_results*2,  # Get more results than needed to filter
-        where={"type": "ingredients"}
-    )
-    
-    # Extract recipe IDs from the results
-    recipe_ids = []
-    for i, metadata in enumerate(results['metadatas'][0]):
-        if 'recipe_id' in metadata:
-            recipe_id = metadata['recipe_id']
-            if recipe_id not in recipe_ids:
-                recipe_ids.append(recipe_id)
-    
-    # Limit to the requested number of results
-    recipe_ids = recipe_ids[:n_results]
-    
-    # Get full recipe details for each ID
-    recipes = []
-    for recipe_id in recipe_ids:
-        recipe = get_recipe_by_id(conn, recipe_id)
-        if recipe:
-            recipes.append(recipe)
-    
-    return recipes
-
-def get_similar_recipes(conn, recipe_collection, recipe_id, similarity_type="ingredients", n_results=3):
-    """Find recipes similar to the given recipe based on the specified similarity type."""
-    # Get the original recipe
-    original_recipe = get_recipe_by_id(conn, recipe_id)
-    if not original_recipe:
-        return []
-    
-    # Query for similar recipes based on the similarity type
-    query_id = f"{similarity_type}_{recipe_id}"
-    
     try:
-        results = recipe_collection.query(
-            ids=[query_id],
-            n_results=n_results + 1,  # +1 because it will include the original
-            where={"type": similarity_type}
-        )
-    except Exception as e:
-        print(f"Error querying vector database: {e}")
+        cursor.execute("PRAGMA table_info(recipes)")
+        existing_columns = [row[1] for row in cursor.fetchall()]
         
-        # Fallback: query by text if ID query fails
-        if similarity_type == "ingredients":
-            query_text = ", ".join(original_recipe["ingredients"])
-        elif similarity_type == "steps":
-            query_text = " ".join(original_recipe["steps"])
-        else:
-            query_text = original_recipe["name"]
+        if existing_columns:
+            print(f"Existing columns in recipes table: {existing_columns}")
+            # Filter the dataframe to only include columns that exist in the table
+            valid_columns = [col for col in recipes_df.columns if col in existing_columns]
             
-        results = recipe_collection.query(
-            query_texts=[query_text],
-            n_results=n_results + 1,
-            where={"type": similarity_type}
-        )
+            if len(valid_columns) < len(recipes_df.columns):
+                missing_columns = set(recipes_df.columns) - set(existing_columns)
+                print(f"Warning: Dropping columns not in table schema: {missing_columns}")
+                
+            recipes_df = recipes_df[valid_columns]
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet, we'll create it
+        print("Table 'recipes' doesn't exist yet. It will be created.")
     
-    # Extract recipe IDs excluding the original
-    recipe_ids = []
-    for metadata in results['metadatas'][0]:
-        if 'recipe_id' in metadata:
-            result_id = metadata['recipe_id']
-            if result_id != recipe_id and result_id not in recipe_ids:
-                recipe_ids.append(result_id)
-    
-    # Get complete recipe information
-    similar_recipes = []
-    for similar_id in recipe_ids[:n_results]:
-        recipe = get_recipe_by_id(conn, similar_id)
-        if recipe:
-            similar_recipes.append(recipe)
-    
-    return similar_recipes
+    # Insert into database
+    recipes_df.to_sql('recipes', conn, if_exists='append', index=False)
+    print(f"✅ Successfully loaded {len(recipes_df)} recipes into SQLite")
 
-# ============================================================
-# PART 3: Recipe Customization with Function Calling
-# ============================================================
-
-# Define function schemas for the Gemini API
-def get_function_definitions():
-    """Define the schema for functions that can be called by the Gemini API."""
-    return [
-        {
-            "name": "search_recipes_by_query",
-            "description": "Search for recipes based on a natural language query",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language query to search recipes"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of recipes to return"
-                    }
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "get_recipe_by_id",
-            "description": "Get detailed information about a specific recipe",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "recipe_id": {
-                        "type": "integer",
-                        "description": "ID of the recipe to retrieve"
-                    }
-                },
-                "required": ["recipe_id"]
-            }
-        },
-        {
-            "name": "customize_recipe",
-            "description": "Customize a recipe based on dietary preferences or ingredient substitutions",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "recipe_id": {
-                        "type": "integer",
-                        "description": "ID of the recipe to customize"
-                    },
-                    "dietary_restrictions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of dietary restrictions (e.g., vegetarian, vegan, gluten-free)"
-                    },
-                    "ingredients_to_add": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of ingredients to add to the recipe"
-                    },
-                    "ingredients_to_remove": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of ingredients to remove from the recipe"
-                    },
-                    "serving_size": {
-                        "type": "integer",
-                        "description": "New serving size for the recipe"
-                    }
-                },
-                "required": ["recipe_id"]
-            }
-        },
-        {
-            "name": "get_similar_recipes",
-            "description": "Find recipes similar to a given recipe",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "recipe_id": {
-                        "type": "integer",
-                        "description": "ID of the reference recipe"
-                    },
-                    "similarity_type": {
-                        "type": "string",
-                        "enum": ["ingredients", "steps", "name"],
-                        "description": "Type of similarity to consider"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of similar recipes to return"
-                    }
-                },
-                "required": ["recipe_id"]
-            }
-        }
-    ]
-
-def customize_recipe(conn, recipe_id, dietary_restrictions=None, ingredients_to_add=None, 
-                     ingredients_to_remove=None, serving_size=None):
-    """Customize a recipe based on specified modifications."""
-    # Get the original recipe
-    original_recipe = get_recipe_by_id(conn, recipe_id)
-    if not original_recipe:
-        return {"error": f"Recipe with ID {recipe_id} not found"}
+def load_interactions_to_sqlite(conn: sqlite3.Connection, interactions_df: pd.DataFrame) -> None:
+    """Load interactions dataframe into the SQLite database."""
+    print(f"Loading {len(interactions_df)} interactions into SQLite...")
     
-    # Create a deep copy of the original recipe for modification
-    customized_recipe = original_recipe.copy()
-    customized_recipe["original_id"] = recipe_id
-    customized_recipe["customized"] = True
-    customized_recipe["modifications"] = []
+    # Insert into database
+    interactions_df.to_sql('interactions', conn, if_exists='append', index=False)
+    print(f"✅ Successfully loaded {len(interactions_df)} interactions into SQLite")
+
+def load_nutrition_to_sqlite(conn: sqlite3.Connection, nutrition_df: pd.DataFrame) -> None:
+    """Load nutrition dataframe into the SQLite database."""
+    print(f"Loading {len(nutrition_df)} nutrition entries into SQLite...")
     
-    # Apply dietary restrictions
-    if dietary_restrictions:
-        # For each dietary restriction, modify the ingredients accordingly
-        for restriction in dietary_restrictions:
-            restriction = restriction.lower()
+    # Create a copy of the dataframe to avoid modifying the original
+    nutrition_df = nutrition_df.copy()
+    
+    # Get column mappings from DataFrame to SQLite table schema
+    column_mappings = {
+        'Vitamin C': 'vitamin_c',
+        'Vitamin B11': 'vitamin_b11',
+        'Sodium': 'sodium',
+        'Calcium': 'calcium',
+        'Carbohydrates': 'carbohydrates',
+        'Iron': 'iron',
+        'Caloric Value': 'caloric_value',
+        'Sugars': 'sugars',
+        'Dietary Fiber': 'dietary_fiber',
+        'Fat': 'fat',
+        'Protein': 'protein',
+        'food': 'food',  # Keep as is
+        'food_normalized': 'food_normalized'  # Keep as is
+    }
+    
+    # Check existing table columns to validate the mapping
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA table_info(nutrition)")
+        existing_columns = [row[1] for row in cursor.fetchall()]
+        print(f"Existing columns in nutrition table: {existing_columns}")
+        
+        # Rename columns to match SQLite schema
+        renamed_columns = {}
+        for col in nutrition_df.columns:
+            if col in column_mappings and column_mappings[col] in existing_columns:
+                renamed_columns[col] = column_mappings[col]
+            elif col.lower().replace(' ', '_') in existing_columns:
+                # Try automatically converting names (spaces to underscores, lowercase)
+                renamed_columns[col] = col.lower().replace(' ', '_')
+            else:
+                print(f"Warning: Column '{col}' doesn't match any schema column and will be dropped")
+        
+        # Apply the renaming
+        nutrition_df = nutrition_df.rename(columns=renamed_columns)
+        
+        # Keep only columns that exist in the table
+        valid_columns = [col for col in nutrition_df.columns if col in existing_columns]
+        if len(valid_columns) < len(nutrition_df.columns):
+            missing_columns = set(nutrition_df.columns) - set(existing_columns)
+            print(f"Warning: Dropping columns not in table schema: {missing_columns}")
             
-            if restriction == "vegetarian":
-                meat_ingredients = ["beef", "chicken", "pork", "lamb", "veal", "bacon", "ham", "sausage", "turkey"]
-                ingredients_to_remove = ingredients_to_remove or []
-                
-                # Find meat ingredients in the recipe
-                for ingredient in original_recipe["ingredients"]:
-                    if any(meat in ingredient.lower() for meat in meat_ingredients):
-                        ingredients_to_remove.append(ingredient)
-                
-                if ingredients_to_remove:
-                    customized_recipe["modifications"].append(f"Made vegetarian by removing {', '.join(ingredients_to_remove)}")
-            
-            elif restriction == "vegan":
-                animal_products = [
-                    "meat", "beef", "chicken", "pork", "lamb", "veal", "bacon", "ham", "sausage",
-                    "milk", "cheese", "cream", "butter", "yogurt", "egg", "honey"
-                ]
-                ingredients_to_remove = ingredients_to_remove or []
-                
-                # Find animal products in the recipe
-                for ingredient in original_recipe["ingredients"]:
-                    if any(product in ingredient.lower() for product in animal_products):
-                        ingredients_to_remove.append(ingredient)
-                
-                if ingredients_to_remove:
-                    customized_recipe["modifications"].append(f"Made vegan by removing {', '.join(ingredients_to_remove)}")
-            
-            elif restriction == "gluten-free":
-                gluten_ingredients = ["wheat", "flour", "pasta", "bread", "crackers", "barley", "rye"]
-                ingredients_to_remove = ingredients_to_remove or []
-                
-                # Find gluten-containing ingredients
-                for ingredient in original_recipe["ingredients"]:
-                    if any(gluten in ingredient.lower() for gluten in gluten_ingredients):
-                        ingredients_to_remove.append(ingredient)
-                
-                if ingredients_to_remove:
-                    customized_recipe["modifications"].append(f"Made gluten-free by removing {', '.join(ingredients_to_remove)}")
+        nutrition_df = nutrition_df[valid_columns]
+        
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet, we'll use our predefined mappings
+        print("Table 'nutrition' doesn't exist yet. Using predefined column mappings.")
+        nutrition_df = nutrition_df.rename(columns=column_mappings)
+        # Keep only mapped columns
+        nutrition_df = nutrition_df[[col for col in nutrition_df.columns if col in column_mappings.values()]]
     
-    # Remove specified ingredients
-    if ingredients_to_remove:
-        customized_ingredients = []
-        for ingredient in original_recipe["ingredients"]:
-            if not any(remove_ing.lower() in ingredient.lower() for remove_ing in ingredients_to_remove):
-                customized_ingredients.append(ingredient)
-        
-        customized_recipe["ingredients"] = customized_ingredients
-        customized_recipe["n_ingredients"] = len(customized_ingredients)
-        
-        if not any("removing" in mod for mod in customized_recipe["modifications"]):
-            customized_recipe["modifications"].append(f"Removed ingredients: {', '.join(ingredients_to_remove)}")
-    
-    # Add new ingredients
-    if ingredients_to_add:
-        for ingredient in ingredients_to_add:
-            if ingredient not in customized_recipe["ingredients"]:
-                customized_recipe["ingredients"].append(ingredient)
-        
-        customized_recipe["n_ingredients"] = len(customized_recipe["ingredients"])
-        customized_recipe["modifications"].append(f"Added ingredients: {', '.join(ingredients_to_add)}")
-    
-    # Adjust serving size
-    if serving_size and serving_size != original_recipe.get("servings", 4):
-        original_servings = original_recipe.get("servings", 4)
-        multiplier = serving_size / original_servings
-        
-        # Note about scaling
-        customized_recipe["servings"] = serving_size
-        customized_recipe["modifications"].append(f"Adjusted serving size from {original_servings} to {serving_size}")
-        
-        # In a real implementation, we would scale quantities in the ingredients
-        # This is a simplified version that just notes the scaling
-        customized_recipe["scaling_note"] = f"All ingredient quantities should be multiplied by {multiplier:.2f}"
-    
-    # Update the recipe name to indicate customization
-    if customized_recipe["modifications"]:
-        prefix = []
-        if dietary_restrictions:
-            prefix.extend(r.capitalize() for r in dietary_restrictions)
-        if ingredients_to_add:
-            prefix.append("Modified")
-        
-        if prefix:
-            customized_recipe["name"] = f"{' '.join(prefix)} {original_recipe['name']}"
-    
-    return customized_recipe
+    # Insert into database
+    nutrition_df.to_sql('nutrition', conn, if_exists='append', index=False)
+    print(f"✅ Successfully loaded {len(nutrition_df)} nutrition entries into SQLite")
 
-def handle_function_call(conn, recipe_collection, function_name, function_args):
-    """Execute the function called by the Gemini API."""
-    if function_name == "search_recipes_by_query":
-        query = function_args.get("query", "")
-        limit = function_args.get("limit", 5)
-        
-        # Get recipe IDs from vector search
-        recipe_ids = search_recipes_by_text(recipe_collection, query, limit)
-        
-        # Get complete recipe information
-        recipes = []
-        for recipe_id in recipe_ids:
-            recipe = get_recipe_by_id(conn, recipe_id)
-            if recipe:
-                # Simplify the output for clarity
-                recipes.append({
-                    "id": recipe["id"],
-                    "name": recipe["name"],
-                    "description": recipe["description"],
-                    "ingredients": recipe["ingredients"],
-                    "cuisine_type": recipe["cuisine_type"],
-                    "minutes": recipe["minutes"]
-                })
-        
-        return recipes
+def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataFrame) -> None:
+    """Load preprocessed recipe data into ChromaDB using tokenized data.
+    This version handles pre-processed data from Food.com dataset where recipes are already tokenized."""
+    print(f"Loading {len(vectorized_recipes_df)} preprocessed recipes into ChromaDB...")
     
-    elif function_name == "get_recipe_by_id":
-        recipe_id = function_args.get("recipe_id")
-        if not recipe_id:
-            return {"error": "Recipe ID is required"}
-        
-        recipe = get_recipe_by_id(conn, recipe_id)
-        return recipe if recipe else {"error": f"Recipe with ID {recipe_id} not found"}
+    count = 0
+    batch_size = 100  # Process in batches to avoid memory issues
+    total_rows = len(vectorized_recipes_df)
     
-    elif function_name == "customize_recipe":
-        recipe_id = function_args.get("recipe_id")
-        if not recipe_id:
-            return {"error": "Recipe ID is required"}
-        
-        return customize_recipe(
-            conn,
-            recipe_id,
-            dietary_restrictions=function_args.get("dietary_restrictions"),
-            ingredients_to_add=function_args.get("ingredients_to_add"),
-            ingredients_to_remove=function_args.get("ingredients_to_remove"),
-            serving_size=function_args.get("serving_size")
-        )
+    # Check if the dataframe has the expected columns
+    expected_columns = ['id', 'name_tokens', 'ingredient_tokens', 'steps_tokens']
+    missing_columns = [col for col in expected_columns if col not in vectorized_recipes_df.columns]
     
-    elif function_name == "get_similar_recipes":
-        recipe_id = function_args.get("recipe_id")
-        if not recipe_id:
-            return {"error": "Recipe ID is required"}
+    if missing_columns:
+        print(f"Warning: Missing expected columns in vectorized_recipes_df: {missing_columns}")
+        print(f"Available columns: {vectorized_recipes_df.columns.tolist()}")
         
-        similarity_type = function_args.get("similarity_type", "ingredients")
-        limit = function_args.get("limit", 3)
+    # Process in batches
+    for i in range(0, total_rows, batch_size):
+        batch = vectorized_recipes_df.iloc[i:min(i+batch_size, total_rows)]
         
-        similar_recipes = get_similar_recipes(
-            conn, 
-            recipe_collection, 
-            recipe_id, 
-            similarity_type, 
-            limit
-        )
+        # Create batches for each type of data
+        ids = []
+        metadatas = []
+        documents = []
         
-        # Simplify the output for clarity
-        simplified_recipes = []
-        for recipe in similar_recipes:
-            simplified_recipes.append({
-                "id": recipe["id"],
-                "name": recipe["name"],
-                "description": recipe["description"],
-                "ingredients": recipe["ingredients"],
-                "cuisine_type": recipe["cuisine_type"],
-                "minutes": recipe["minutes"]
+        for _, row in batch.iterrows():
+            recipe_id = int(row['id'])
+            
+            # For this preprocessed data, we'll just store the tokenized data as documents
+            # and rely on the search functionality of ChromaDB
+            document_text = {}
+            
+            # Add name tokens if available
+            if 'name_tokens' in row and isinstance(row['name_tokens'], list):
+                document_text['name_tokens'] = str(row['name_tokens'])
+            
+            # Add ingredient tokens if available
+            if 'ingredient_tokens' in row and isinstance(row['ingredient_tokens'], list):
+                document_text['ingredient_tokens'] = str(row['ingredient_tokens'])
+                
+            # Add steps tokens if available
+            if 'steps_tokens' in row and isinstance(row['steps_tokens'], list):
+                document_text['steps_tokens'] = str(row['steps_tokens'])
+                
+            # Combine all available info
+            combined_text = str(document_text)
+            
+            ids.append(f"recipe_{recipe_id}")
+            metadatas.append({
+                "recipe_id": recipe_id,
+                "i": int(row.get('i', 0)),
+                "calorie_level": int(row.get('calorie_level', 0)),
+                "type": "recipe"
             })
+            documents.append(combined_text)
+            
+            count += 1
         
-        return simplified_recipes
-    
-    else:
-        return {"error": f"Unknown function: {function_name}"}
+        # Add batch to ChromaDB
+        if ids:
+            try:
+                recipe_collection.add(
+                    ids=ids,
+                    metadatas=metadatas,
+                    documents=documents
+                )
+                print(f"Processed batch {i//batch_size + 1}/{(total_rows + batch_size - 1)//batch_size} ({len(ids)} recipes)")
+            except Exception as e:
+                print(f"Error adding batch to ChromaDB: {e}")
+            
+    print(f"✅ Successfully added {count} preprocessed recipes to ChromaDB")
 
-# ============================================================
-# PART 4: Gemini API Integration for Recipe Customization
-# ============================================================
-
-def recipe_customization_chat(conn, recipe_collection, user_query):
-    """Implement a chat interface for recipe customization using Gemini API function calling."""
-    # Set up the Gemini model
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-pro",
-        generation_config={"temperature": 0.2}
-    )
+def load_users_to_vector_db(user_collection, vectorized_users_df: pd.DataFrame) -> None:
+    """Load preprocessed user data into ChromaDB.
+    This version handles pre-processed user data from Food.com dataset with techniques, items, and ratings."""
+    print(f"Loading {len(vectorized_users_df)} preprocessed users into ChromaDB...")
     
-    # Define system prompt
-    system_prompt = """
-    You are RecipeGenie, an expert AI assistant specialized in recipe customization. 
-    Your goal is to help users find, understand, and customize recipes according to their preferences.
+    # Check column names and map to expected names
+    user_id_column = 'user_id' if 'user_id' in vectorized_users_df.columns else ('u' if 'u' in vectorized_users_df.columns else None)
     
-    You can:
-    1. Search for recipes based on ingredients, cuisine types, dietary restrictions, or dish names
-    2. Get detailed information about specific recipes
-    3. Customize recipes according to dietary needs (vegetarian, vegan, gluten-free, etc.)
-    4. Find similar recipes to ones the user is interested in
-    
-    When customizing recipes:
-    - For vegetarian: Replace meat with plant-based proteins like tofu, tempeh, or legumes
-    - For vegan: Replace all animal products (meat, dairy, eggs, honey) with plant-based alternatives
-    - For gluten-free: Replace wheat flour with alternative flours, pasta with GF pasta, etc.
-    
-    Respond in a helpful, conversational manner. Always suggest alternatives when removing ingredients.
-    """
-    
-    # Create a chat session
-    chat = model.start_chat(tools=get_function_definitions())
-    
-    # Send system instructions
-    chat.send_message(system_prompt)
-    
-    # Send user query and handle function calls
-    response = chat.send_message(user_query)
-    
-    # Check if the response includes function calls
-    if hasattr(response, 'candidates') and response.candidates[0].content.parts[0].function_call:
-        function_call = response.candidates[0].content.parts[0].function_call
-        function_name = function_call.name
-        function_args = json.loads(function_call.args)
+    if user_id_column is None:
+        print("Error: Could not find user ID column in the dataframe. Expected 'user_id' or 'u'.")
+        print("Available columns:", vectorized_users_df.columns.tolist())
+        return
         
-        print(f"Function called: {function_name}")
-        print(f"Arguments: {json.dumps(function_args, indent=2)}")
+    print(f"Using '{user_id_column}' as the user ID column")
+    
+    count = 0
+    batch_size = 100  # Process in batches to avoid memory issues
+    total_rows = len(vectorized_users_df)
+    
+    # Process in batches
+    for i in range(0, total_rows, batch_size):
+        batch = vectorized_users_df.iloc[i:min(i+batch_size, total_rows)]
         
-        # Execute the function
-        function_response = handle_function_call(conn, recipe_collection, function_name, function_args)
+        # Create batches for each type of data
+        ids = []
+        metadatas = []
+        documents = []
         
-        # Send the function response back to the model
-        follow_up = chat.send_message(function_response)
+        for _, row in batch.iterrows():
+            user_id = int(row[user_id_column])
+            
+            # Combine user information into a document
+            user_data = {}
+            
+            # Add techniques if available
+            if 'techniques' in row and row['techniques'] is not None:
+                user_data['techniques'] = str(row['techniques'])
+                
+            # Add items if available
+            if 'items' in row and row['items'] is not None:
+                user_data['items'] = str(row['items'])
+                
+            # Add ratings if available
+            if 'ratings' in row and row['ratings'] is not None:
+                user_data['ratings'] = str(row['ratings'])
+            
+            # Combine all user data
+            combined_text = str(user_data)
+            
+            ids.append(f"user_{user_id}")
+            metadatas.append({
+                "user_id": user_id,
+                "n_items": int(row.get('n_items', 0)),
+                "n_ratings": int(row.get('n_ratings', 0)),
+                "type": "user"
+            })
+            documents.append(combined_text)
+            
+            count += 1
         
-        # Return both the function data and the model's interpretation
-        return {
-            "function_called": function_name,
-            "function_args": function_args,
-            "function_response": function_response,
-            "assistant_response": follow_up.text
-        }
-    else:
-        # Return just the text response if no function was called
-        return {
-            "function_called": None,
-            "assistant_response": response.text
-        }
+        # Add batch to ChromaDB
+        if ids:
+            try:
+                user_collection.add(
+                    ids=ids,
+                    metadatas=metadatas,
+                    documents=documents
+                )
+                print(f"Processed batch {i//batch_size + 1}/{(total_rows + batch_size - 1)//batch_size} ({len(ids)} users)")
+            except Exception as e:
+                print(f"Error adding batch to ChromaDB: {e}")
+            
+    print(f"✅ Successfully added {count} preprocessed users to ChromaDB")
+
+def track_vector_references(conn: sqlite3.Connection, table_name: str, record_id: int, vector_id: str, vector_type: str) -> None:
+    """Add a reference to a vector in the vector_refs table."""
+    cursor = conn.cursor()
+    cursor.execute('''
+    INSERT INTO vector_refs (table_name, record_id, vector_id, vector_type)
+    VALUES (?, ?, ?, ?)
+    ''', (table_name, record_id, vector_id, vector_type))
+    conn.commit()
 
 # ============================================================
-# PART 5: Few-Shot Prompting for Recipe Customization
+# PART 1.3: Initialize Databases and Load Data
 # ============================================================
 
-def customize_recipe_with_few_shot(conn, recipe_id, user_request):
-    """Customize a recipe using few-shot prompting instead of function calling."""
-    # Get the original recipe
-    original_recipe = get_recipe_by_id(conn, recipe_id)
-    if not original_recipe:
-        return {"error": f"Recipe with ID {recipe_id} not found"}
-    
-    # Define few-shot examples
-    few_shot_examples = """
-    Example 1:
-    Original Recipe: Chicken Alfredo Pasta
-    Ingredients: chicken breast, fettuccine pasta, heavy cream, butter, parmesan cheese, garlic, salt, pepper
-    User Request: "I'm vegetarian, can you adapt this recipe for me?"
-    Customized Recipe:
-    Vegetarian Alfredo Pasta
-    Ingredients: fettuccine pasta, heavy cream, butter, parmesan cheese, garlic, salt, pepper, mushrooms, spinach
-    Modifications:
-    - Removed chicken breast
-    - Added mushrooms and spinach for texture and nutrition
-    - Use vegetable broth instead of chicken broth if needed
-    
-    Example 2:
-    Original Recipe: Classic Beef Lasagna
-    Ingredients: ground beef, lasagna noodles, ricotta cheese, mozzarella cheese, parmesan cheese, egg, tomato sauce, onion, garlic, herbs
-    User Request: "I need a dairy-free version of this recipe"
-    Customized Recipe:
-    Dairy-Free Beef Lasagna
-    Ingredients: ground beef, lasagna noodles, dairy-free ricotta alternative, dairy-free mozzarella alternative, nutritional yeast, tomato sauce, onion, garlic, herbs
-    Modifications:
-    - Replaced ricotta cheese with silken tofu blended with nutritional yeast and herbs
-    - Replaced mozzarella with dairy-free cheese alternative
-    - Replaced parmesan with nutritional yeast
-    - Removed egg (can use 1 tbsp cornstarch mixed with 2 tbsp water as a binder)
-    
-    Example 3:
-    Original Recipe: Chocolate Chip Cookies
-    Ingredients: all-purpose flour, butter, white sugar, brown sugar, eggs, vanilla extract, baking soda, salt, chocolate chips
-    User Request: "Can you make this recipe gluten-free and with less sugar?"
-    Customized Recipe:
-    Gluten-Free Lower-Sugar Chocolate Chip Cookies
-    Ingredients: gluten-free flour blend, butter, coconut sugar (reduced amount), eggs, vanilla extract, baking soda, salt, dark chocolate chips
-    Modifications:
-    - Replaced all-purpose flour with gluten-free flour blend (add 1/2 tsp xanthan gum if not included in blend)
-    - Reduced white and brown sugar by 25% and replaced with coconut sugar
-    - Used dark chocolate chips with higher cocoa content (less sugar)
-    - Added 1/4 tsp cinnamon to enhance sweetness perception without adding sugar
-    """
-    
-    # Create the prompt for the Gemini model
-    prompt = f"""
-    {few_shot_examples}
-    
-    Original Recipe: {original_recipe["name"]}
-    Ingredients: {", ".join(original_recipe["ingredients"])}
-    Steps: {original_recipe["steps"]}
-    User Request: "{user_request}"
-    
-    Provide a customized version of this recipe based on the user's request. Include:
-    1. A suitable name for the customized recipe
-    2. Modified list of ingredients
-    3. Clear explanation of all modifications made
-    4. Any special notes or tips for preparation
-    
-    Format your response as:
-    Customized Recipe:
-    [New Recipe Name]
-    Ingredients:
-    [Modified Ingredients List]
-    Modifications:
-    - [Modification 1]
-    - [Modification 2]
-    Special Notes:
-    [Any special preparation notes]
-    """
-    
-    # Use Gemini to generate the customized recipe
-    model = genai.GenerativeModel(model_name="gemini-1.5-pro")
-    response = model.generate_content(prompt)
-    
-    # Parse the response text and structure it
-    response_text = response.text
-    
-    result = {
-        "original_recipe": original_recipe["name"],
-        "original_id": recipe_id,
-        "user_request": user_request,
-        "customized_recipe": response_text
-    }
-    
-    return result
+def initialize_databases(db_path=DB_PATH):
+    """Initialize both SQLite and ChromaDB databases."""
+    print("Initializing empty databases...")
+    print(f"Using SQLite database at: {db_path}")
 
-# ============================================================
-# PART 6: Visualization and Analysis
-# ============================================================
+    # Initialize SQLite database with the provided path
+    sqlite_conn = setup_sqlite_database(db_path)
 
-def visualize_recipe_customization_metrics(conn):
-    """Visualize metrics and insights about recipe customization patterns."""
-    # For demonstration, we'll use our sample data to simulate customization metrics
-    
-    # 1. Most common dietary restrictions
-    dietary_restrictions = ["Vegetarian", "Vegan", "Gluten-Free", "Dairy-Free", "Low-Carb"]
-    restriction_counts = [42, 35, 28, 22, 18]
-    
-    plt.figure(figsize=(10, 6))
-    plt.bar(dietary_restrictions, restriction_counts, color='skyblue')
-    plt.title('Most Common Dietary Restrictions in Recipe Customizations')
-    plt.xlabel('Restriction Type')
-    plt.ylabel('Number of Customizations')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-    
-    # 2. Most commonly added/removed ingredients
-    removed_ingredients = ["Chicken", "Beef", "Dairy", "Gluten", "Sugar"]
-    removed_counts = [38, 32, 30, 25, 20]
-    
-    added_ingredients = ["Tofu", "Mushrooms", "Plant Milk", "GF Flour", "Nutritional Yeast"]
-    added_counts = [35, 32, 28, 25, 22]
-    
-    plt.figure(figsize=(12, 6))
-    
-    plt.subplot(1, 2, 1)
-    plt.bar(removed_ingredients, removed_counts, color='salmon')
-    plt.title('Most Commonly Removed Ingredients')
-    plt.ylabel('Count')
-    plt.xticks(rotation=45)
-    
-    plt.subplot(1, 2, 2)
-    plt.bar(added_ingredients, added_counts, color='lightgreen')
-    plt.title('Most Commonly Added Ingredients')
-    plt.ylabel('Count')
-    plt.xticks(rotation=45)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # 3. Customization satisfaction scores (simulated)
-    satisfaction_data = {
-        'Vegetarian': [4.2, 4.5, 3.8, 4.7, 4.3],
-        'Vegan': [4.0, 3.9, 4.2, 3.7, 4.1],
-        'Gluten-Free': [3.7, 4.0, 3.5, 3.8, 4.2],
-        'Low-Carb': [4.1, 3.9, 4.3, 4.0, 3.8]
-    }
-    
-    plt.figure(figsize=(10, 6))
-    plt.boxplot([satisfaction_data[k] for k in satisfaction_data.keys()], 
-                labels=satisfaction_data.keys())
-    plt.title('User Satisfaction Scores by Dietary Restriction Type')
-    plt.ylabel('Satisfaction Score (1-5)')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.show()
-    
-    return {
-        "dietary_restrictions": dict(zip(dietary_restrictions, restriction_counts)),
-        "removed_ingredients": dict(zip(removed_ingredients, removed_counts)),
-        "added_ingredients": dict(zip(added_ingredients, added_counts)),
-        "satisfaction_scores": satisfaction_data
-    }
-
-# ============================================================
-# PART 7: Demo & Usage
-# ============================================================
-
-def run_recipe_customization_demo():
-    """Run a demonstration of the recipe customization system."""
-    print("# Recipe Customization System Demonstration")
-    
-    # Set up the databases
-    db_conn = setup_sqlite_database()
+    # Initialize ChromaDB
     chroma_client, recipe_collection, user_collection = setup_vector_database()
     
-    # Load sample data
-    load_sample_data(db_conn, recipe_collection)
+    print("Empty databases initialized successfully!")
+    return sqlite_conn, chroma_client, recipe_collection, user_collection
+
+def load_all_data_to_databases(
+    sqlite_conn: sqlite3.Connection,
+    chroma_client,
+    recipe_collection,
+    user_collection,
+    recipes_df: pd.DataFrame = None,
+    interactions_df: pd.DataFrame = None,
+    nutrition_df: pd.DataFrame = None,
+    vectorized_recipes_df: pd.DataFrame = None,
+    vectorized_users_df: pd.DataFrame = None
+):
+    """Load all dataframes directly into the databases."""
+    print("Loading data into databases...")
     
-    print("\n## Database Inspection")
-    tables = list_tables(db_conn)
-    print(f"Tables in database: {', '.join(tables)}")
+    # Load recipe data into SQLite if provided
+    if recipes_df is not None:
+        load_recipes_to_sqlite(sqlite_conn, recipes_df)
+        
+    # Load interactions data into SQLite if provided
+    if interactions_df is not None:
+        load_interactions_to_sqlite(sqlite_conn, interactions_df)
+        
+    # Load nutrition data into SQLite if provided
+    if nutrition_df is not None:
+        load_nutrition_to_sqlite(sqlite_conn, nutrition_df)
+        
+    # Load vectorized recipe data into ChromaDB if provided
+    if vectorized_recipes_df is not None:
+        load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df)
+        
+        # Add vector references to SQLite for cross-referencing - using the recipe_id format for the preprocessed data
+        for _, row in vectorized_recipes_df.iterrows():
+            recipe_id = row['id']
+            # For preprocessed data, we're storing a single vector reference per recipe
+            track_vector_references(sqlite_conn, 'recipes', recipe_id, f"recipe_{recipe_id}", 'preprocessed')
     
-    # Show a sample recipe
-    print("\n## Sample Recipe")
-    sample_recipe = get_recipe_by_id(db_conn, 1)
-    print(f"Recipe: {sample_recipe['name']}")
-    print(f"Ingredients: {', '.join(sample_recipe['ingredients'])}")
-    print(f"Cook time: {sample_recipe['minutes']} minutes")
-    print(f"Steps: {len(sample_recipe['steps'])} steps")
+    # Load vectorized user data into ChromaDB if provided
+    if vectorized_users_df is not None:
+        load_users_to_vector_db(user_collection, vectorized_users_df)
+        
+        # Add vector references to SQLite for cross-referencing - using user ID from 'u' column for the preprocessed data
+        user_id_column = 'user_id' if 'user_id' in vectorized_users_df.columns else ('u' if 'u' in vectorized_users_df.columns else None)
+        if user_id_column:
+            for _, row in vectorized_users_df.iterrows():
+                user_id = row[user_id_column]
+                # For preprocessed data, we're storing a single vector reference per user
+                track_vector_references(sqlite_conn, 'user_preferences', user_id, f"user_{user_id}", 'preprocessed')
     
-    # Demonstrate recipe search
-    print("\n## Recipe Search")
-    print("Searching for 'vegetable' recipes...")
-    vegetable_recipes = search_recipes_by_text(recipe_collection, "vegetable", 2)
-    for recipe_id in vegetable_recipes:
-        recipe = get_recipe_by_id(db_conn, recipe_id)
-        print(f" - {recipe['name']} (ID: {recipe['id']})")
+    print("All data successfully loaded into databases!")
+    return True
+
+# ============================================================
+# PART 1.4: Data Loading Utilities
+# ============================================================
+
+def load_data_from_files(
+    recipes_file: str = None,
+    interactions_file: str = None,
+    nutrition_file: str = None,
+    vectorized_recipes_file: str = None,
+    vectorized_users_file: str = None
+) -> Dict[str, pd.DataFrame]:
+    """Load data from files into pandas DataFrames."""
+    print("Loading data from files...")
+    dataframes = {}
     
-    # Demonstrate ingredient-based search
-    print("\nSearching for recipes with 'pasta' and 'garlic'...")
-    pasta_recipes = search_recipes_by_ingredients(db_conn, recipe_collection, ["pasta", "garlic"], 2)
-    for recipe in pasta_recipes:
-        print(f" - {recipe['name']} (ID: {recipe['id']})")
+    # Load recipes data if file exists
+    if recipes_file and os.path.exists(recipes_file):
+        if recipes_file.endswith('.csv'):
+            dataframes['recipes_df'] = pd.read_csv(recipes_file)
+        elif recipes_file.endswith('.json'):
+            dataframes['recipes_df'] = pd.read_json(recipes_file)
+        print(f"✅ Loaded {len(dataframes['recipes_df'])} recipes from {recipes_file}")
     
-    # Demonstrate similar recipes
-    print("\n## Similar Recipes")
-    print(f"Finding recipes similar to '{sample_recipe['name']}'...")
-    similar_recipes = get_similar_recipes(db_conn, recipe_collection, 1, "ingredients", 2)
-    for recipe in similar_recipes:
-        print(f" - {recipe['name']} (ID: {recipe['id']})")
+    # Load interactions data if file exists
+    if interactions_file and os.path.exists(interactions_file):
+        if interactions_file.endswith('.csv'):
+            dataframes['interactions_df'] = pd.read_csv(interactions_file)
+        elif interactions_file.endswith('.json'):
+            dataframes['interactions_df'] = pd.read_json(interactions_file)
+        print(f"✅ Loaded {len(dataframes['interactions_df'])} interactions from {interactions_file}")
     
-    # Demonstrate recipe customization with function calling
-    print("\n## Recipe Customization with Function Calling")
-    print("Customizing Creamy Garlic Pasta to be vegan...")
+    # Load nutrition data if file exists
+    if nutrition_file and os.path.exists(nutrition_file):
+        if nutrition_file.endswith('.csv'):
+            dataframes['nutrition_df'] = pd.read_csv(nutrition_file)
+        elif nutrition_file.endswith('.json'):
+            dataframes['nutrition_df'] = pd.read_json(nutrition_file)
+        print(f"✅ Loaded {len(dataframes['nutrition_df'])} nutrition entries from {nutrition_file}")
     
-    customization_result = customize_recipe(
-        db_conn, 
-        1, 
-        dietary_restrictions=["vegan"],
-        ingredients_to_remove=["heavy cream", "parmesan cheese"],
-        ingredients_to_add=["coconut milk", "nutritional yeast"]
+    # Load vectorized recipes data if file exists
+    if vectorized_recipes_file and os.path.exists(vectorized_recipes_file):
+        if vectorized_recipes_file.endswith('.csv'):
+            dataframes['vectorized_recipes_df'] = pd.read_csv(vectorized_recipes_file)
+        elif vectorized_recipes_file.endswith('.json'):
+            dataframes['vectorized_recipes_df'] = pd.read_json(vectorized_recipes_file)
+            
+            # Convert string embeddings back to numpy arrays if needed
+            for col in dataframes['vectorized_recipes_df'].columns:
+                if '_embedding' in col:
+                    dataframes['vectorized_recipes_df'][col] = dataframes['vectorized_recipes_df'][col].apply(
+                        lambda x: np.array(x) if isinstance(x, list) else x
+                    )
+        print(f"✅ Loaded {len(dataframes['vectorized_recipes_df'])} vectorized recipes from {vectorized_recipes_file}")
+    
+    # Load vectorized users data if file exists
+    if vectorized_users_file and os.path.exists(vectorized_users_file):
+        if vectorized_users_file.endswith('.csv'):
+            dataframes['vectorized_users_df'] = pd.read_csv(vectorized_users_file)
+        elif vectorized_users_file.endswith('.json'):
+            dataframes['vectorized_users_df'] = pd.read_json(vectorized_users_file)
+            
+            # Convert string embeddings back to numpy arrays if needed
+            for col in dataframes['vectorized_users_df'].columns:
+                if '_embedding' in col:
+                    dataframes['vectorized_users_df'][col] = dataframes['vectorized_users_df'][col].apply(
+                        lambda x: np.array(x) if isinstance(x, list) else x
+                    )
+        print(f"✅ Loaded {len(dataframes['vectorized_users_df'])} vectorized users from {vectorized_users_file}")
+    
+    return dataframes
+
+def setup_and_load_databases_from_dataframes(
+    db_path: str = DB_PATH,
+    recipes_df: pd.DataFrame = None,
+    interactions_df: pd.DataFrame = None,
+    nutrition_df: pd.DataFrame = None,
+    vectorized_recipes_df: pd.DataFrame = None,
+    vectorized_users_df: pd.DataFrame = None
+) -> Tuple[sqlite3.Connection, Any, Any, Any]:
+    """
+    One-step function to set up databases and load data from dataframes.
+    
+    Args:
+        db_path: Path to SQLite database file
+        recipes_df: DataFrame containing recipe data
+        interactions_df: DataFrame containing user-recipe interactions
+        nutrition_df: DataFrame containing nutrition data
+        vectorized_recipes_df: DataFrame containing recipe embeddings
+        vectorized_users_df: DataFrame containing user embeddings
+    
+    Returns:
+        Tuple containing SQLite connection, ChromaDB client, recipe collection, and user collection
+    """
+    # Initialize empty databases
+    sqlite_conn, chroma_client, recipe_collection, user_collection = initialize_databases(db_path)
+    
+    # Load DataFrames into databases
+    load_all_data_to_databases(
+        sqlite_conn,
+        chroma_client,
+        recipe_collection,
+        user_collection,
+        recipes_df=recipes_df,
+        interactions_df=interactions_df,
+        nutrition_df=nutrition_df,
+        vectorized_recipes_df=vectorized_recipes_df,
+        vectorized_users_df=vectorized_users_df
     )
     
-    print(f"Customized Recipe: {customization_result['name']}")
-    print(f"Ingredients: {', '.join(customization_result['ingredients'])}")
-    print("Modifications:")
-    for mod in customization_result['modifications']:
-        print(f" - {mod}")
-    
-    # Demonstrate chat interface with function calling
-    print("\n## Chat Interface with Function Calling")
-    query = "I want to make a vegetarian version of the beef lasagna. Can you help me?"
-    print(f"User Query: '{query}'")
-    
-    response = recipe_customization_chat(db_conn, recipe_collection, query)
-    
-    if response["function_called"]:
-        print(f"Function Called: {response['function_called']}")
-        print(f"AI Response: {response['assistant_response']}")
-    else:
-        print(f"AI Response: {response['assistant_response']}")
-    
-    # Demonstrate few-shot prompting
-    print("\n## Few-Shot Prompting for Recipe Customization")
-    request = "I'm on a low-carb diet. Can you adapt this pasta recipe for me?"
-    print(f"User Request: '{request}'")
-    
-    few_shot_result = customize_recipe_with_few_shot(db_conn, 1, request)
-    
-    print("Customization Result:")
-    print(few_shot_result["customized_recipe"])
-    
-    # Visualization demo
-    print("\n## Recipe Customization Analytics")
-    print("Generating visualizations of recipe customization patterns...")
-    metrics = visualize_recipe_customization_metrics(db_conn)
-    
-    print("\n## Demo Complete!")
-    print("The recipe customization system has demonstrated the following capabilities:")
-    print(" - Hybrid storage with SQLite and vector embeddings")
-    print(" - Semantic search for recipes")
-    print(" - Function calling with the Gemini API")
-    print(" - Few-shot prompting for recipe customization")
-    print(" - Visualization of customization patterns")
+    return sqlite_conn, chroma_client, recipe_collection, user_collection
 
+# We'll keep the original function for loading from files as a backup option
+def setup_and_load_databases_from_files(
+    db_path: str = DB_PATH,
+    recipes_file: str = None,
+    interactions_file: str = None,
+    nutrition_file: str = None,
+    vectorized_recipes_file: str = None,
+    vectorized_users_file: str = None
+) -> Tuple[sqlite3.Connection, Any, Any, Any]:
+    """
+    One-step function to set up databases and load data from files.
+    
+    Returns:
+        Tuple containing SQLite connection, ChromaDB client, recipe collection, and user collection
+    """
+    # Initialize empty databases
+    sqlite_conn, chroma_client, recipe_collection, user_collection = initialize_databases(db_path)
+    
+    # Load data from files into DataFrames
+    dataframes = load_data_from_files(
+        recipes_file,
+        interactions_file,
+        nutrition_file,
+        vectorized_recipes_file,
+        vectorized_users_file
+    )
+    
+    # Load DataFrames into databases
+    load_all_data_to_databases(
+        sqlite_conn,
+        chroma_client,
+        recipe_collection,
+        user_collection,
+        recipes_df=dataframes.get('recipes_df'),
+        interactions_df=dataframes.get('interactions_df'),
+        nutrition_df=dataframes.get('nutrition_df'),
+        vectorized_recipes_df=dataframes.get('vectorized_recipes_df'),
+        vectorized_users_df=dataframes.get('vectorized_users_df')
+    )
+    
+    return sqlite_conn, chroma_client, recipe_collection, user_collection
+
+# Example of complete workflow usage
 if __name__ == "__main__":
-    run_recipe_customization_demo()
+    # Example for using with dataframes:
+    # connections = setup_and_load_databases_from_dataframes(
+    #     recipes_df=recipes_df,
+    #     interactions_df=interactions_df,
+    #     nutrition_df=nutrition_df,
+    #     vectorized_recipes_df=vectorized_recipes_df,
+    #     vectorized_users_df=vectorized_users_df
+    # )
+    
+    print("\nDatabase setup complete! You can now use the databases for your application.")
+    print("- SQLite database is available at:", DB_PATH)
+    print("- Vector database is available at:", VECTOR_DB_PATH)
