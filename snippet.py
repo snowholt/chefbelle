@@ -6,6 +6,10 @@ import pandas as pd
 import sqlite3
 import chromadb
 from typing import Dict, List, Any, Optional, Tuple, Union
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import partial
+from tqdm import tqdm  # For progress bars
 
 # Import embedding functions based on ChromaDB version
 try:
@@ -293,14 +297,49 @@ def load_nutrition_to_sqlite(conn: sqlite3.Connection, nutrition_df: pd.DataFram
     nutrition_df.to_sql('nutrition', conn, if_exists='append', index=False)
     print(f"✅ Successfully loaded {len(nutrition_df)} nutrition entries into SQLite")
 
+def _process_recipe_batch(batch, expected_columns):
+    """Process a batch of recipes for parallel execution."""
+    ids = []
+    metadatas = []
+    documents = []
+    
+    for _, row in batch.iterrows():
+        recipe_id = int(row['id'])
+        
+        # For this preprocessed data, we'll just store the tokenized data as documents
+        # and rely on the search functionality of ChromaDB
+        document_text = {}
+        
+        # Add name tokens if available
+        if 'name_tokens' in row and isinstance(row['name_tokens'], list):
+            document_text['name_tokens'] = str(row['name_tokens'])
+        
+        # Add ingredient tokens if available
+        if 'ingredient_tokens' in row and isinstance(row['ingredient_tokens'], list):
+            document_text['ingredient_tokens'] = str(row['ingredient_tokens'])
+            
+        # Add steps tokens if available
+        if 'steps_tokens' in row and isinstance(row['steps_tokens'], list):
+            document_text['steps_tokens'] = str(row['steps_tokens'])
+            
+        # Combine all available info
+        combined_text = str(document_text)
+        
+        ids.append(f"recipe_{recipe_id}")
+        metadatas.append({
+            "recipe_id": recipe_id,
+            "i": int(row.get('i', 0)),
+            "calorie_level": int(row.get('calorie_level', 0)),
+            "type": "recipe"
+        })
+        documents.append(combined_text)
+    
+    return ids, metadatas, documents
+
 def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataFrame) -> None:
-    """Load preprocessed recipe data into ChromaDB using tokenized data.
+    """Load preprocessed recipe data into ChromaDB using tokenized data with parallel processing.
     This version handles pre-processed data from Food.com dataset where recipes are already tokenized."""
     print(f"Loading {len(vectorized_recipes_df)} preprocessed recipes into ChromaDB...")
-    
-    count = 0
-    batch_size = 100  # Process in batches to avoid memory issues
-    total_rows = len(vectorized_recipes_df)
     
     # Check if the dataframe has the expected columns
     expected_columns = ['id', 'name_tokens', 'ingredient_tokens', 'steps_tokens']
@@ -309,65 +348,104 @@ def load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df: pd.DataF
     if missing_columns:
         print(f"Warning: Missing expected columns in vectorized_recipes_df: {missing_columns}")
         print(f"Available columns: {vectorized_recipes_df.columns.tolist()}")
-        
-    # Process in batches
-    for i in range(0, total_rows, batch_size):
-        batch = vectorized_recipes_df.iloc[i:min(i+batch_size, total_rows)]
-        
-        # Create batches for each type of data
-        ids = []
-        metadatas = []
-        documents = []
-        
-        for _, row in batch.iterrows():
-            recipe_id = int(row['id'])
-            
-            # For this preprocessed data, we'll just store the tokenized data as documents
-            # and rely on the search functionality of ChromaDB
-            document_text = {}
-            
-            # Add name tokens if available
-            if 'name_tokens' in row and isinstance(row['name_tokens'], list):
-                document_text['name_tokens'] = str(row['name_tokens'])
-            
-            # Add ingredient tokens if available
-            if 'ingredient_tokens' in row and isinstance(row['ingredient_tokens'], list):
-                document_text['ingredient_tokens'] = str(row['ingredient_tokens'])
+    
+    # Set environment variable to avoid tokenizer warnings
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
+    # Due to database write permission issues with multiprocessing, we'll process data in parallel
+    # but write to the database in the main process
+    
+    # Determine batch size based on available memory
+    total_rows = len(vectorized_recipes_df)
+    batch_size = 2000  # A reasonable batch size to avoid memory issues
+    
+    # Split dataframe into batches
+    batches = [vectorized_recipes_df.iloc[i:i+batch_size] for i in range(0, total_rows, batch_size)]
+    print(f"Processing {len(batches)} batches with approximately {batch_size} recipes per batch")
+    
+    # Initialize counter for added records
+    count = 0
+    
+    # Determine number of processes for parallel preprocessing only
+    num_cores = multiprocessing.cpu_count()
+    num_processes = max(1, min(num_cores - 1, 8))  # Using fewer processes to avoid database contention
+    print(f"Using {num_processes} processes for parallel preprocessing")
+    
+    # Using multiprocessing for preprocessing data but adding to DB in main thread
+    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        with tqdm(total=len(batches), desc="Processing recipe batches") as pbar:
+            # Process batches with progress bar
+            for batch in batches:
+                try:
+                    # Preprocess batch in parallel
+                    ids = []
+                    metadatas = []
+                    documents = []
+                    
+                    # Process current batch in parallel
+                    future_results = list(executor.map(_process_recipe_batch, [batch], [expected_columns]))
+                    
+                    # Collect results
+                    for batch_ids, batch_metadatas, batch_documents in future_results:
+                        ids.extend(batch_ids)
+                        metadatas.extend(batch_metadatas)
+                        documents.extend(batch_documents)
+                    
+                    # Add to ChromaDB in the main process (avoids the readonly database error)
+                    if ids:
+                        recipe_collection.add(
+                            ids=ids,
+                            metadatas=metadatas,
+                            documents=documents
+                        )
+                        count += len(ids)
+                except Exception as e:
+                    print(f"Error processing batch: {str(e)}")
                 
-            # Add steps tokens if available
-            if 'steps_tokens' in row and isinstance(row['steps_tokens'], list):
-                document_text['steps_tokens'] = str(row['steps_tokens'])
-                
-            # Combine all available info
-            combined_text = str(document_text)
-            
-            ids.append(f"recipe_{recipe_id}")
-            metadatas.append({
-                "recipe_id": recipe_id,
-                "i": int(row.get('i', 0)),
-                "calorie_level": int(row.get('calorie_level', 0)),
-                "type": "recipe"
-            })
-            documents.append(combined_text)
-            
-            count += 1
+                pbar.update(1)
+    
+    print(f"✅ Successfully added {count} preprocessed recipes to ChromaDB using parallel processing")
+
+def _process_user_batch(batch, user_id_column):
+    """Process a batch of users for parallel execution."""
+    ids = []
+    metadatas = []
+    documents = []
+    
+    for _, row in batch.iterrows():
+        user_id = int(row[user_id_column])
         
-        # Add batch to ChromaDB
-        if ids:
-            try:
-                recipe_collection.add(
-                    ids=ids,
-                    metadatas=metadatas,
-                    documents=documents
-                )
-                print(f"Processed batch {i//batch_size + 1}/{(total_rows + batch_size - 1)//batch_size} ({len(ids)} recipes)")
-            except Exception as e:
-                print(f"Error adding batch to ChromaDB: {e}")
+        # Combine user information into a document
+        user_data = {}
+        
+        # Add techniques if available
+        if 'techniques' in row and row['techniques'] is not None:
+            user_data['techniques'] = str(row['techniques'])
             
-    print(f"✅ Successfully added {count} preprocessed recipes to ChromaDB")
+        # Add items if available
+        if 'items' in row and row['items'] is not None:
+            user_data['items'] = str(row['items'])
+            
+        # Add ratings if available
+        if 'ratings' in row and row['ratings'] is not None:
+            user_data['ratings'] = str(row['ratings'])
+        
+        # Combine all user data
+        combined_text = str(user_data)
+        
+        ids.append(f"user_{user_id}")
+        metadatas.append({
+            "user_id": user_id,
+            "n_items": int(row.get('n_items', 0)),
+            "n_ratings": int(row.get('n_ratings', 0)),
+            "type": "user"
+        })
+        documents.append(combined_text)
+    
+    return ids, metadatas, documents
 
 def load_users_to_vector_db(user_collection, vectorized_users_df: pd.DataFrame) -> None:
-    """Load preprocessed user data into ChromaDB.
+    """Load preprocessed user data into ChromaDB with parallel processing.
     This version handles pre-processed user data from Food.com dataset with techniques, items, and ratings."""
     print(f"Loading {len(vectorized_users_df)} preprocessed users into ChromaDB...")
     
@@ -381,64 +459,62 @@ def load_users_to_vector_db(user_collection, vectorized_users_df: pd.DataFrame) 
         
     print(f"Using '{user_id_column}' as the user ID column")
     
-    count = 0
-    batch_size = 100  # Process in batches to avoid memory issues
-    total_rows = len(vectorized_users_df)
+    # Set environment variable to avoid tokenizer warnings (if not already set)
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     
-    # Process in batches
-    for i in range(0, total_rows, batch_size):
-        batch = vectorized_users_df.iloc[i:min(i+batch_size, total_rows)]
-        
-        # Create batches for each type of data
-        ids = []
-        metadatas = []
-        documents = []
-        
-        for _, row in batch.iterrows():
-            user_id = int(row[user_id_column])
-            
-            # Combine user information into a document
-            user_data = {}
-            
-            # Add techniques if available
-            if 'techniques' in row and row['techniques'] is not None:
-                user_data['techniques'] = str(row['techniques'])
+    # Due to database write permission issues with multiprocessing, we'll process in batches
+    # and only write to the database from the main process
+    
+    # Determine batch size based on available memory
+    total_rows = len(vectorized_users_df)
+    batch_size = 2000  # A reasonable batch size to avoid memory issues
+    
+    # Split dataframe into batches
+    batches = [vectorized_users_df.iloc[i:i+batch_size] for i in range(0, total_rows, batch_size)]
+    print(f"Processing {len(batches)} batches with approximately {batch_size} users per batch")
+    
+    # Initialize counter for added records
+    count = 0
+    
+    # Determine number of processes for parallel preprocessing only
+    num_cores = multiprocessing.cpu_count()
+    num_processes = max(1, min(num_cores - 1, 8))  # Using fewer processes to avoid database contention
+    print(f"Using {num_processes} processes for parallel preprocessing")
+    
+    # Using multiprocessing for preprocessing data but adding to DB in main thread
+    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        with tqdm(total=len(batches), desc="Processing user batches") as pbar:
+            # Process batches with progress bar
+            for batch in batches:
+                try:
+                    # Preprocess batch in parallel
+                    ids = []
+                    metadatas = []
+                    documents = []
+                    
+                    # Process current batch in parallel
+                    future_results = list(executor.map(_process_user_batch, [batch], [user_id_column]))
+                    
+                    # Collect results
+                    for batch_ids, batch_metadatas, batch_documents in future_results:
+                        ids.extend(batch_ids)
+                        metadatas.extend(batch_metadatas)
+                        documents.extend(batch_documents)
+                    
+                    # Add to ChromaDB in the main process (avoids the readonly database error)
+                    if ids:
+                        user_collection.add(
+                            ids=ids,
+                            metadatas=metadatas,
+                            documents=documents
+                        )
+                        count += len(ids)
+                except Exception as e:
+                    print(f"Error processing batch: {str(e)}")
                 
-            # Add items if available
-            if 'items' in row and row['items'] is not None:
-                user_data['items'] = str(row['items'])
-                
-            # Add ratings if available
-            if 'ratings' in row and row['ratings'] is not None:
-                user_data['ratings'] = str(row['ratings'])
-            
-            # Combine all user data
-            combined_text = str(user_data)
-            
-            ids.append(f"user_{user_id}")
-            metadatas.append({
-                "user_id": user_id,
-                "n_items": int(row.get('n_items', 0)),
-                "n_ratings": int(row.get('n_ratings', 0)),
-                "type": "user"
-            })
-            documents.append(combined_text)
-            
-            count += 1
-        
-        # Add batch to ChromaDB
-        if ids:
-            try:
-                user_collection.add(
-                    ids=ids,
-                    metadatas=metadatas,
-                    documents=documents
-                )
-                print(f"Processed batch {i//batch_size + 1}/{(total_rows + batch_size - 1)//batch_size} ({len(ids)} users)")
-            except Exception as e:
-                print(f"Error adding batch to ChromaDB: {e}")
-            
-    print(f"✅ Successfully added {count} preprocessed users to ChromaDB")
+                pbar.update(1)
+    
+    print(f"✅ Successfully added {count} preprocessed users to ChromaDB using parallel processing")
 
 def track_vector_references(conn: sqlite3.Connection, table_name: str, record_id: int, vector_id: str, vector_type: str) -> None:
     """Add a reference to a vector in the vector_refs table."""
@@ -447,6 +523,15 @@ def track_vector_references(conn: sqlite3.Connection, table_name: str, record_id
     INSERT INTO vector_refs (table_name, record_id, vector_id, vector_type)
     VALUES (?, ?, ?, ?)
     ''', (table_name, record_id, vector_id, vector_type))
+    conn.commit()
+
+def track_vector_references_batch(conn: sqlite3.Connection, references: List[Tuple[str, int, str, str]]) -> None:
+    """Add multiple references to vectors in the vector_refs table in a single transaction."""
+    cursor = conn.cursor()
+    cursor.executemany('''
+    INSERT INTO vector_refs (table_name, record_id, vector_id, vector_type)
+    VALUES (?, ?, ?, ?)
+    ''', references)
     conn.commit()
 
 # ============================================================
@@ -497,23 +582,47 @@ def load_all_data_to_databases(
     if vectorized_recipes_df is not None:
         load_recipes_to_vector_db(recipe_collection, vectorized_recipes_df)
         
-        # Add vector references to SQLite for cross-referencing - using the recipe_id format for the preprocessed data
-        for _, row in vectorized_recipes_df.iterrows():
+        # Add vector references to SQLite for cross-referencing in batches
+        print("Adding vector references for recipes to SQLite...")
+        batch_size = 1000
+        references = []
+        
+        for _, row in tqdm(vectorized_recipes_df.iterrows(), total=len(vectorized_recipes_df), desc="Creating recipe vector references"):
             recipe_id = row['id']
-            # For preprocessed data, we're storing a single vector reference per recipe
-            track_vector_references(sqlite_conn, 'recipes', recipe_id, f"recipe_{recipe_id}", 'preprocessed')
+            references.append(('recipes', recipe_id, f"recipe_{recipe_id}", 'preprocessed'))
+            
+            # Process in batches to avoid memory issues
+            if len(references) >= batch_size:
+                track_vector_references_batch(sqlite_conn, references)
+                references = []
+        
+        # Process any remaining references
+        if references:
+            track_vector_references_batch(sqlite_conn, references)
     
     # Load vectorized user data into ChromaDB if provided
     if vectorized_users_df is not None:
         load_users_to_vector_db(user_collection, vectorized_users_df)
         
-        # Add vector references to SQLite for cross-referencing - using user ID from 'u' column for the preprocessed data
+        # Add vector references to SQLite for cross-referencing in batches
         user_id_column = 'user_id' if 'user_id' in vectorized_users_df.columns else ('u' if 'u' in vectorized_users_df.columns else None)
         if user_id_column:
-            for _, row in vectorized_users_df.iterrows():
+            print("Adding vector references for users to SQLite...")
+            batch_size = 1000
+            references = []
+            
+            for _, row in tqdm(vectorized_users_df.iterrows(), total=len(vectorized_users_df), desc="Creating user vector references"):
                 user_id = row[user_id_column]
-                # For preprocessed data, we're storing a single vector reference per user
-                track_vector_references(sqlite_conn, 'user_preferences', user_id, f"user_{user_id}", 'preprocessed')
+                references.append(('user_preferences', user_id, f"user_{user_id}", 'preprocessed'))
+                
+                # Process in batches to avoid memory issues
+                if len(references) >= batch_size:
+                    track_vector_references_batch(sqlite_conn, references)
+                    references = []
+            
+            # Process any remaining references
+            if references:
+                track_vector_references_batch(sqlite_conn, references)
     
     print("All data successfully loaded into databases!")
     return True
