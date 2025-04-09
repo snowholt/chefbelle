@@ -1,0 +1,48 @@
+flowchart TD
+    Start([Start]) --> DataLoading[Initial Data Loading]
+    DataLoading --> ETAProcess[Extract, Transform, Analyze Data]
+    ETAProcess --> DBCreation[Create SQL & Vector Databases]
+    DBCreation --> InputTypeCheck{Input Type?}
+
+    InputTypeCheck -->|Speech| STT[Speech to Text]
+    InputTypeCheck -->|Text| LangraphAgent
+    STT --> LangraphAgent
+
+    subgraph LangraphProcess[LLM / Langraph Agent]
+        FewShot[Apply Few-Shot Prompting] --> FunctionCall[Decide Function Call]
+    end
+
+    LangraphAgent --> QueryType{Query Type?}
+
+    QueryType -->|Vector| VectorDB[Query Vector Database]
+    QueryType -->|SQL| SQLDB[Query SQL Database]
+
+    VectorDB --> ResultCheck{Results Found?}
+    SQLDB --> ResultCheck
+
+    ResultCheck -->|Yes| Response[Generate & Deliver Response]
+    ResultCheck -->|No| Internet[Ground Truth via Internet Search]
+
+    Internet --> UpdateDBs
+
+    subgraph UpdateDBs[Update Databases]
+        UpdateVector[Update Vector DB] --> UpdateSQL[Update SQL DB]
+    end
+
+    UpdateDBs --> Response
+    Response --> MoreRequests{More Requests?}
+
+    MoreRequests -->|Yes| InputTypeCheck
+    MoreRequests -->|No| End([End])
+
+    classDef start fill:#9f6,stroke:#333,stroke-width:2px
+    classDef process fill:#bbf,stroke:#333,stroke-width:1px
+    classDef decision fill:#fcc,stroke:#333,stroke-width:1px
+    classDef subproc fill:#fcf,stroke:#333,stroke-width:1px
+    classDef end fill:#f96,stroke:#333,stroke-width:2px
+
+    class Start start
+    class End end
+    class InputTypeCheck,QueryType,ResultCheck,MoreRequests decision
+    class LangraphProcess,UpdateDBs subproc
+    class DataLoading,ETAProcess,DBCreation,STT,VectorDB,SQLDB,Internet,Response process

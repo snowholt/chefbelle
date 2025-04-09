@@ -349,30 +349,249 @@ Workflow demonstration complete!
 
 ---
 
-#### Step 3: Few-Shot Prompting for Recipe Customization
-**Status**: ⬜ Not Started
+#### Step 3: Recipe Customization with Function Calling and Hybrid Storage
+**Status**: ✅ Completed
 
 **Summary**:
-- [Brief description of what was implemented]
+- Implemented a hybrid storage system combining SQLite for structured data and ChromaDB for vector embeddings
+- Created a recipe customization system using Gemini API function calling
+- Developed semantic search capabilities for finding recipes by ingredients or similarity
+- Built a natural language interface for recipe customization using Gemini's function calling capabilities
+- Implemented few-shot prompting for recipe modifications as an alternative approach
+- Added visualization tools to analyze recipe customization patterns
 
 **Key Technologies Used**:
-- [List of technologies and libraries]
+- SQLite for structured relational database storage
+- ChromaDB for vector embeddings and semantic search
+- Google Gemini API for function calling and natural language processing
+- Matplotlib and Seaborn for data visualization
+- JSON for structured data formatting
+- Pandas for data handling
 
 **Gen AI Capabilities Demonstrated**:
-- [List specific capabilities]
+- **Function Calling**: Using Gemini API to interpret user requests and call the appropriate functions
+- **Vector Embeddings**: Creating and querying semantic embeddings for recipe search
+- **Few-Shot Prompting**: Guiding the model to make recipe customizations with examples
+- **Natural Language Understanding**: Interpreting complex recipe customization requests
+- **Structured Output Generation**: Converting natural language requests into structured modifications
 
 **Key Implementation Details**:
 ```python
-# Sample code snippet
+# Define function schemas for the Gemini API
+def get_function_definitions():
+    """Define the schema for functions that can be called by the Gemini API."""
+    return [
+        {
+            "name": "search_recipes_by_query",
+            "description": "Search for recipes based on a natural language query",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query to search recipes"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of recipes to return"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "customize_recipe",
+            "description": "Customize a recipe based on dietary preferences or ingredient substitutions",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recipe_id": {
+                        "type": "integer",
+                        "description": "ID of the recipe to customize"
+                    },
+                    "dietary_restrictions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of dietary restrictions (e.g., vegetarian, vegan, gluten-free)"
+                    },
+                    "ingredients_to_add": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of ingredients to add to the recipe"
+                    },
+                    "ingredients_to_remove": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of ingredients to remove from the recipe"
+                    },
+                    "serving_size": {
+                        "type": "integer",
+                        "description": "New serving size for the recipe"
+                    }
+                },
+                "required": ["recipe_id"]
+            }
+        },
+        # Additional function definitions...
+    ]
+
+# Hybrid storage implementation with SQLite and ChromaDB
+def setup_hybrid_storage():
+    # Set up SQLite for structured data
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Create tables for recipes, interactions, nutrition, and vector references
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS recipes (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        minutes INTEGER,
+        submitted TEXT,
+        description TEXT,
+        n_steps INTEGER,
+        steps TEXT,           -- JSON array of steps
+        n_ingredients INTEGER,
+        ingredients TEXT,     -- JSON array of ingredients
+        cuisine_type TEXT
+    )
+    ''')
+    
+    # Set up ChromaDB for vector embeddings
+    chroma_client = chromadb.Client()
+    recipe_collection = chroma_client.create_collection(
+        name="recipe_embeddings",
+        embedding_function=embedding_functions.DefaultEmbeddingFunction(),
+        get_or_create=True
+    )
+    
+    return conn, chroma_client, recipe_collection
+
+# Recipe customization with function calling
+def recipe_customization_chat(conn, recipe_collection, user_query):
+    """Implement a chat interface for recipe customization using Gemini API function calling."""
+    # Set up the Gemini model
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro",
+        generation_config={"temperature": 0.2}
+    )
+    
+    # Define system prompt and create chat
+    system_prompt = "You are RecipeGenie, an expert AI assistant specialized in recipe customization..."
+    chat = model.start_chat(tools=get_function_definitions())
+    chat.send_message(system_prompt)
+    
+    # Send user query and handle function calls
+    response = chat.send_message(user_query)
+    
+    # Check if the response includes function calls
+    if hasattr(response, 'candidates') and response.candidates[0].content.parts[0].function_call:
+        function_call = response.candidates[0].content.parts[0].function_call
+        function_name = function_call.name
+        function_args = json.loads(function_call.args)
+        
+        # Execute the function
+        function_response = handle_function_call(conn, recipe_collection, function_name, function_args)
+        
+        # Send the function response back to the model
+        follow_up = chat.send_message(function_response)
+        
+        return {
+            "function_called": function_name,
+            "function_args": function_args,
+            "function_response": function_response,
+            "assistant_response": follow_up.text
+        }
+    else:
+        return {
+            "function_called": None,
+            "assistant_response": response.text
+        }
 ```
 
 **Challenges & Solutions**:
-- **Challenge**: [Description]
-- **Solution**: [How it was resolved]
+- **Challenge**: Implementing both a relational database and vector database to work together effectively
+- **Solution**: Created a vector reference table in SQLite to maintain references between the structured data and vector embeddings
+
+- **Challenge**: Handling dietary restrictions in a systematic way for recipe customization
+- **Solution**: Implemented rule-based substitution logic with specific treatments for common restrictions like vegetarian, vegan, and gluten-free
+
+- **Challenge**: Designing an effective function calling schema for the Gemini API
+- **Solution**: Created detailed function specifications with clear parameter documentation to help the model make accurate function calls
+
+- **Challenge**: Generating meaningful recipe customizations that maintain culinary consistency
+- **Solution**: Combined rule-based modifications with few-shot prompting to guide the model in making appropriate substitutions
+
+- **Challenge**: Making the vector search work effectively with limited data
+- **Solution**: Implemented fallback mechanisms that switch to text-based search when vector search doesn't yield sufficient results
 
 **Output Example**:
 ```
-[Sample output or visualization]
+# Recipe Customization System Demonstration
+
+## Database Inspection
+Tables in database: recipes, interactions, nutrition, vector_refs, user_preferences
+
+## Sample Recipe
+Recipe: Creamy Garlic Pasta
+Ingredients: pasta, butter, garlic, heavy cream, parmesan cheese, salt, parsley
+Cook time: 30 minutes
+Steps: 5 steps
+
+## Recipe Search
+Searching for 'vegetable' recipes...
+ - Vegetable Stir Fry (ID: 2)
+
+Searching for recipes with 'pasta' and 'garlic'...
+ - Creamy Garlic Pasta (ID: 1)
+
+## Similar Recipes
+Finding recipes similar to 'Creamy Garlic Pasta'...
+ - Classic Beef Lasagna (ID: 3)
+
+## Recipe Customization with Function Calling
+Customizing Creamy Garlic Pasta to be vegan...
+Customized Recipe: Vegan Creamy Garlic Pasta
+Ingredients: pasta, butter, garlic, coconut milk, nutritional yeast, salt, parsley
+Modifications:
+ - Made vegan by removing heavy cream, parmesan cheese
+ - Added ingredients: coconut milk, nutritional yeast
+
+## Chat Interface with Function Calling
+User Query: 'I want to make a vegetarian version of the beef lasagna. Can you help me?'
+Function Called: customize_recipe
+AI Response: I'd be happy to help you create a vegetarian version of the Classic Beef Lasagna! Here's a customized recipe:
+
+Vegetarian Lasagna
+Ingredients:
+- lasagna noodles
+- onion
+- garlic
+- tomato sauce
+- ricotta cheese
+- mozzarella cheese
+- parmesan cheese
+- egg
+- basil
+- oregano
+- salt
+- mushrooms (added)
+- spinach (added)
+- lentils (added)
+
+I've made the following modifications:
+- Removed ground beef and replaced it with a combination of mushrooms, spinach, and cooked lentils
+- The mushrooms provide umami flavor and meaty texture
+- The spinach adds nutrition and color
+- The lentils add protein and heartiness
+
+When preparing this vegetarian version:
+1. Sauté the mushrooms until they release their moisture
+2. Add spinach until wilted
+3. Mix in cooked lentils with the tomato sauce
+4. Layer as you would with the original recipe
+
+Enjoy your vegetarian lasagna!
 ```
 
 ---
