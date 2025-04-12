@@ -138,6 +138,19 @@ RecipeCustomizationNode. If the intent is exit, it routes to END. Otherwise (for
 - Defined route_after_human: Checks the finished flag in the state. Routes to END if true, otherwise routes back to - InputParserNode to process the new user input.
 - Conceptualized static routing: ToolExecutorNode routes back to InputParserNode to process tool results. 
  RecipeCustomizationNode (when implemented) routes to ResponseFormatterNode. ResponseFormatterNode routes to HumanInputNode.
+
+- Instantiated StateGraph with the KitchenState schema.
+- Added the core nodes defined in previous steps: InputParserNode, HumanInputNode, ToolExecutorNode (for stateless tools), RecipeCustomizationNode (placeholder), and ResponseFormatterNode.
+Set the InputParserNode as the graph's entry point (START).
+- Defined conditional edges:
+From InputParserNode using route_after_parsing to direct flow to tool execution, customization, response formatting, or the end state based on the parser's output.
+From HumanInputNode using route_after_human to either loop back to the parser or end the graph.
+- Defined direct edges:
+ToolExecutorNode -> InputParserNode (to process tool results).
+RecipeCustomizationNode -> ResponseFormatterNode (to format customization output).
+ResponseFormatterNode -> HumanInputNode (to present the final response).
+- Compiled the graph using graph_builder.compile(), making it ready for execution.
+- Included optional graph visualization.
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
