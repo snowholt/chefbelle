@@ -1,21 +1,9 @@
-import google.generativeai as genai
-from google.generativeai import types
-import os
-import re
-import pandas as pd
-from IPython.display import display, Markdown, Code # Add Code import
 
-# Assume GOOGLE_API_KEY is loaded from environment or secrets
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY environment variable not set.")
 
-genai.configure(api_key=GOOGLE_API_KEY)
+# Initialize the client instead of using configure
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # --- Part 1: Generate Nutritional Summary Text ---
-
-# Instantiate the model for text generation
-text_model = genai.GenerativeModel("gemini-2.0-flash")
 
 nutritional_data_prompt = """Calculate the total nutritional values of a recipe based on the available data for its ingredients. Follow these rules:
 
@@ -24,7 +12,7 @@ nutritional_data_prompt = """Calculate the total nutritional values of a recipe 
 3. Sum each nutritional column (e.g., calories, carbohydrates, fat, etc.) **across only the ingredients with available data**.
 4. After summing, divide each value by the number of ingredients that had valid data to get an average per 100g.
 5. Present the result ONLY as a single sentence in the format: "RECIPE_NAME contains approximately: X calories, Y carbohydrates, Z fat, ... per 100g." Do not include any other text, titles, or explanations.
-6. Use the recipe name: “Country White Bread or Dinner Rolls”
+6. Use the recipe name: "Country White Bread or Dinner Rolls"
 
 Here is the nutritional data (per 100g, from Open Food Facts):
 
@@ -42,13 +30,13 @@ butter: calories_100g: 675, carbohydrates_100g: 0.2, fat_100g: 75, fiber_100g: 0
 shortening: calories_100g: 368, carbohydrates_100g: 49.12, fat_100g: 17.54, fiber_100g: 1.8, proteins_100g: 5.26, saturated_fat_100g: 5.26, sodium_100g: 0.333, sugars_100g: 17.54
 """
 
-# Use the model directly
-response_text_gen = text_model.generate_content(
-    # model="gemini-2.0-flash", # Model specified during instantiation
+# Use the client to generate content 
+response_text_gen = client.models.generate_content(
+    model="gemini-2.0-flash",
     contents=nutritional_data_prompt
 )
 
-nutritional_summary_text = response_text_gen.text
+nutritional_summary_text = response_text_gen.candidates[0].content.parts[0].text
 print("Generated Nutritional Summary:")
 print(nutritional_summary_text)
 print("-" * 30)
@@ -56,13 +44,8 @@ print("-" * 30)
 
 # --- Part 2: Visualize the Nutritional Summary using Code Generation --- # Renamed section
 
-# Instantiate the model WITHOUT the code execution tool
-chat_model = genai.GenerativeModel(
-    "gemini-2.0-flash" # Removed tools=['code_execution']
-)
-
-# Create a chat session using the model's start_chat method
-chat = chat_model.start_chat(history=[])
+# Create a chat using client
+chat = client.chats.create(model="gemini-2.0-flash")
 
 # Construct the prompt to ask for code generation
 visualization_prompt = f"""
@@ -87,7 +70,7 @@ response_viz = chat.send_message(
 )
 
 # Extract and display the generated Python code block
-generated_code_text = response_viz.text
+generated_code_text = response_viz.candidates[0].content.parts[0].text
 # Simple extraction assuming the model follows the ```python ... ``` format
 match = re.search(r"```python\n(.*)\n```", generated_code_text, re.DOTALL)
 if match:
