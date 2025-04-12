@@ -94,31 +94,8 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 
 ---
 
-#### Step 5: Function Calling & AI Agent with LangGraph
-**Status**: 🔄 In Progress
 
-**Summary**:
-- Currently building the core AI agent using LangGraph to orchestrate complex tasks like recipe discovery, customization, and nutritional analysis.
-- Designing the agent's state and graph structure to manage multi-step reasoning and maintain conversation context.
-- Integrating the previously developed tools (database interaction, semantic search, nutrition lookup) into the LangGraph agent framework.
-- Focus is on enabling the agent to plan and execute sequences of actions based on user requests (e.g., "Find a vegan pasta recipe, suggest a nut-free pesto, and tell me the calories").
-
-**Key Technologies Used**:
-- LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
-
-**Gen AI Capabilities Being Implemented**:
-- Agent-based reasoning and planning.
-- Advanced Function Calling / Tool Use orchestration.
-- State management and context maintenance.
-
-**Challenges & Solutions**:
-- Designing a flexible and robust agent graph.
-- Ensuring seamless tool integration and error handling within the agent flow.
-- Managing conversational state effectively.
-
----
-
-#### Step 6: Grounding with Google Search
+#### Step 5: Grounding with Google Search
 **Status**: ✅ Demonstrated
 
 **Summary**:
@@ -135,6 +112,31 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 - Simple demonstration; full integration requires deciding when grounding is necessary within the agent flow.
 
 ---
+
+#### Step 5: Function Calling & AI Agent with LangGraph
+**Status**: 🔄 In Progress
+
+**Summary**:
+- Implemented Step 1 of the LangGraph plan: Defined the KitchenState TypedDict schema. This schema includes fields for conversation history, user input, parsed intent, action parameters, retrieved data (search results, recipe details, nutrition, grounding), user context (ingredients, preferences), and control flow flags. It utilizes Annotated and add_messages for proper message handling within LangGraph.
+
+**Key Technologies Used**:
+- LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
+
+**Gen AI Capabilities Being Implemented**:
+- Agent-based reasoning and planning.
+- Advanced Function Calling / Tool Use orchestration.
+- State management and context maintenance.
+
+**Challenges & Solutions**:
+- Designing a flexible and robust agent graph.
+- Ensuring seamless tool integration and error handling within the agent flow.
+- Managing conversational state effectively.
+
+---
+
+
+
+
 
 #### Step 7: User Interface, Testing, and Deployment
 **Status**: ⬜ Not Started

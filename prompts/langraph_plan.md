@@ -1,45 +1,73 @@
-# LangGraph Implementation Plan for Kitchen Management Assistant
+
+
+# LangGraph Implementation Plan for Kitchen Management Assistant (Revised)
 
 ## Introduction
 
-This document outlines the plan for implementing a LangGraph-based workflow for our Interactive Recipe & Kitchen Management Assistant. LangGraph will allow us to create a stateful, graph-based application that effectively leverages the various components we've already built.
+This document outlines the revised plan for implementing a LangGraph-based workflow for our Interactive Recipe & Kitchen Management Assistant. LangGraph will orchestrate the various components developed (data storage, search functions, nutrition lookup, audio processing) into a stateful, conversational agent. This plan incorporates insights from the project's progress and the BaristaBot example notebook.
 
-## 1. State Schema Definition
+The goal is to create an agent that can:
+*   Understand user requests via text or voice.
+*   Search for recipes based on various criteria (ingredients, cuisine, dietary needs, time).
+*   Retrieve and present detailed recipe information, including ingredients, steps, ratings, reviews, and nutritional data.
+*   Customize recipes using few-shot prompting.
+*   Answer general cooking questions, potentially using web grounding.
+*   Manage conversation state and user preferences.
+
+## 1. State Schema Definition (`KitchenState`)
 
 ### Title: Define the Core State Schema
 
 #### Description
-Define the TypedDict schema for our assistant's state, which will be passed between different nodes in the graph.
+Define the `TypedDict` schema for the assistant's state. This schema will hold all necessary information passed between graph nodes.
 
 #### Task Details
-- Create a `KitchenState` TypedDict with appropriate annotations
-- Include conversation history tracking
-- Define slots for current recipe search parameters
-- Add storage for recipe customization requests
-- Include user preference tracking
+- Create a `KitchenState` TypedDict with clear annotations.
+- Include conversation history (`messages`) using `add_messages`.
+- Define slots for user input (text/audio), search parameters, search results, selected recipe details, customization requests, nutritional information, and grounding results.
+- Add fields for user context like available ingredients and dietary preferences.
+- Include flags for control flow (e.g., `needs_clarification`, `finished`).
 
 #### Implementation Example
 ```python
-from typing import Annotated, List, Dict, Optional, Any
+from typing import Annotated, List, Dict, Optional, Any, Sequence
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
 
 class KitchenState(TypedDict):
     """State representing the kitchen assistant conversation."""
-    # The chat conversation history
-    messages: Annotated[list, add_messages]
-    
-    # Search parameters for finding recipes
-    search_params: Dict[str, Any]
-    
-    # Current recipe under consideration
-    current_recipe: Optional[Dict[str, Any]]
-    
-    # User's dietary preferences
-    dietary_preferences: List[str]
-    
-    # Flag indicating end of conversation
-    finished: bool
+    # Conversation history (Human, AI, Tool messages)
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+    # User's raw input (text or transcribed audio)
+    user_input: Optional[str]
+
+    # Parsed intent from user input
+    intent: Optional[str] # e.g., 'search_recipe', 'get_details', 'customize', 'nutrition', 'general_chat', 'grounding_query'
+
+    # Parameters extracted for specific actions
+    search_params: Dict[str, Any] # {'query_text', 'cuisine', 'dietary_tag', 'max_minutes'}
+    selected_recipe_id: Optional[str]
+    customization_request: Optional[str]
+    nutrition_query: Optional[str] # Ingredient or recipe name
+    grounding_query: Optional[str] # Question for web search
+
+    # Data retrieved by tools/nodes
+    search_results: Optional[List[Dict[str, Any]]] # List of recipe summaries from search
+    current_recipe_details: Optional[Dict[str, Any]] # Full details of selected recipe
+    recipe_reviews: Optional[Dict[str, Any]] # Ratings and reviews
+    nutritional_info: Optional[Dict[str, Any]] # Fetched nutrition data
+    grounding_results: Optional[str] # Results from web search
+
+    # User Context
+    user_ingredients: List[str] # Ingredients the user has
+    dietary_preferences: List[str] # e.g., ['vegetarian', 'gluten-free']
+
+    # Control Flow
+    needs_clarification: bool # Flag if agent needs more info from user
+    finished: bool # Flag indicating end of conversation
+    last_assistant_response: Optional[str] # Store the last text response for UI display
 ```
 
 ## 2. System Instructions & Core Nodes
@@ -47,284 +75,175 @@ class KitchenState(TypedDict):
 ### Title: Define System Instructions and Core Nodes
 
 #### Description
-Create system instructions for the assistant and implement the basic nodes for the conversation flow.
+Establish the guiding system prompt for the Gemini model and implement the fundamental nodes for managing the conversation flow and user interaction.
 
 #### Task Details
-- Define detailed system instructions that guide the assistant's behavior
-- Implement a chatbot node that processes messages using Gemini
-- Create a human input node to handle user interactions
-- Add a routing node to direct workflow based on identified intents
+- Define detailed system instructions (`KITCHEN_ASSISTANT_SYSINT`) outlining the assistant's capabilities (recipe search, details, customization, nutrition, voice, grounding), personality, and rules for tool usage (especially specifying `limit` for reviews).
+- Implement an `InputParserNode`: Processes the latest user message (from text or transcribed audio), uses the LLM (Gemini) to determine user intent, extracts relevant parameters (recipe ID, search terms, customization details), and updates the `intent` and parameter fields in the state. This node also handles general chat responses if no specific tool/action is identified.
+- Implement a `HumanInputNode`: Handles interaction with the user. For text, it prompts for input. For voice, it could trigger recording/transcription (or receive transcribed text). It updates `user_input` and potentially the `finished` flag (if user quits).
+- Implement a `ResponseFormatterNode`: Takes the results from various action nodes (search results, recipe details, etc.) and formats them into a user-friendly natural language response, updating `last_assistant_response`.
 
-#### Implementation Example
-```python
-KITCHEN_ASSISTANT_SYSINT = (
-    "system",
-    "You are a Kitchen Management Assistant that helps users discover recipes, customize them according to dietary needs, and provide cooking guidance. You can search for recipes by ingredients, cuisine types, or dietary restrictions. You can also provide nutritional information and suggest substitutions for ingredients..."
-)
+#### Implementation Notes
+- The `InputParserNode` is crucial for understanding the user and deciding the next step. It will leverage the LLM's NLU capabilities.
+- The `HumanInputNode` will be adapted based on the input modality (text vs. voice).
 
-def chatbot_node(state: KitchenState) -> KitchenState:
-    """Process the current conversation state using the Gemini model."""
-    # Implementation details here...
+## 3. Tool Definition and Integration
 
-def human_node(state: KitchenState) -> KitchenState:
-    """Handle user input and update the state accordingly."""
-    # Implementation details here...
-```
-
-## 3. Recipe Search Node
-
-### Title: Implement Recipe Search Functionality
+### Title: Define and Integrate Tools
 
 #### Description
-Create a node to handle recipe search requests using our existing vector database functions.
+Define the Python functions developed in `capstone-2025-kma-nn.ipynb` as tools that the LangGraph agent can invoke. Differentiate between stateless tools (executed by `ToolNode`) and stateful actions (handled by custom nodes).
 
 #### Task Details
-- Implement intent recognition for recipe search queries
-- Extract search parameters from user messages
-- Use the `gemini_recipe_similarity_search` function to find matching recipes
-- Format and return search results
+- **Stateless Tools (for `ToolNode`):**
+    - `gemini_recipe_similarity_search`: Performs vector search for recipes.
+    - `gemini_interaction_similarity_search`: Performs vector search for reviews.
+    - `get_recipe_by_id`: Fetches structured recipe data from SQLite (excluding live nutrition).
+    - `get_ratings_and_reviews_by_recipe_id`: Fetches ratings/reviews from SQLite. **Ensure the LLM is instructed to always provide the `limit` parameter.**
+    - `fetch_nutrition_from_openfoodfacts`: Fetches nutrition for a *single* ingredient (can be used directly or within a custom nutrition node).
+    - `google_search`: (Built-in or custom wrapper) For web grounding.
+- **Stateful Actions (handled by custom nodes):**
+    - *Recipe Customization*: Requires LLM reasoning with few-shot examples, handled in `RecipeCustomizationNode`.
+    - *Nutrition Aggregation*: Summing nutrition across ingredients, handled in `NutritionAnalysisNode`.
+    - *User Preference/Ingredient Updates*: Modifying `dietary_preferences` or `user_ingredients` in the state, potentially handled in an `UpdateStateNode` or within the `InputParserNode`.
+- Bind the appropriate tools to the LLM within the `InputParserNode` so it knows when to call them.
+- Implement a `ToolExecutorNode`: Use LangGraph's `ToolNode` to execute the stateless tools identified by the `InputParserNode`.
 
-#### Few-Shot Prompting Example
-```
-User: "I'm looking for a quick vegetarian pasta recipe"
-Assistant: Let me search for that. What specific ingredients would you like to include?
-User: "I have tomatoes, garlic, and basil"
-Assistant: Great! Let me find some vegetarian pasta recipes with those ingredients.
-[SEARCH EXECUTION]
-I found several vegetarian pasta recipes that use tomatoes, garlic and basil:
-1. Simple Tomato Basil Pasta (15 minutes)
-2. Garlic Tomato Linguine (20 minutes)
-3. Mediterranean Pasta Primavera (25 minutes)
-Would you like details about any of these recipes?
-```
+## 4. Specific Action Nodes
 
-## 4. Recipe Detail Node
-
-### Title: Create Recipe Detail Retrieval Node
+### Title: Implement Nodes for Core Functionalities
 
 #### Description
-Implement a node to fetch and present detailed information about specific recipes.
+Create dedicated nodes for each primary capability of the assistant, leveraging the defined tools and state.
 
 #### Task Details
-- Create a node that triggers on recipe detail requests
-- Use `get_recipe_by_id` function to retrieve complete recipe information
-- Format and present recipes with ingredients, steps, and nutritional information
-- Include ratings and reviews using `get_ratings_and_reviews_by_recipe_id`
+- **`RecipeSearchNode`**:
+    - Triggered when `intent` is `search_recipe`.
+    - Takes `search_params` from the state.
+    - Calls the `gemini_recipe_similarity_search` tool via the `ToolExecutorNode`.
+    - Stores results in `search_results`.
+    - Transitions to `ResponseFormatterNode`.
+- **`RecipeDetailNode`**:
+    - Triggered when `intent` is `get_details`.
+    - Takes `selected_recipe_id` from the state.
+    - Calls `get_recipe_by_id` and `get_ratings_and_reviews_by_recipe_id` tools via `ToolExecutorNode`.
+    - Stores results in `current_recipe_details` and `recipe_reviews`.
+    - Transitions to `NutritionAnalysisNode` (to fetch ingredient nutrition) or directly to `ResponseFormatterNode`.
+- **`NutritionAnalysisNode`**:
+    - Triggered when `intent` is `nutrition` or after `RecipeDetailNode`.
+    - Takes `nutrition_query` (ingredient name) or `current_recipe_details` (for recipe analysis) from the state.
+    - If analyzing a recipe, iterates through ingredients in `current_recipe_details`, calls `fetch_nutrition_from_openfoodfacts` tool for each (via `ToolExecutorNode`), aggregates results, and stores in `nutritional_info`.
+    - If analyzing a single ingredient, calls the tool directly.
+    - Transitions to `ResponseFormatterNode`.
+- **`RecipeCustomizationNode`**:
+    - Triggered when `intent` is `customize`.
+    - Takes `current_recipe_details` and `customization_request` from the state.
+    - Uses the LLM (Gemini) with **Few-Shot Prompting**: Provide examples of successful customizations (vegetarian, gluten-free, lower-calorie substitutions) in the prompt.
+    - Generates the modified recipe text/steps.
+    - Stores the result potentially back in `current_recipe_details` (as a modified version) or a separate state field.
+    - Transitions to `ResponseFormatterNode`.
+- **`AudioInputNode`**:
+    - Triggered when voice input is received.
+    - Takes the audio file path/data from the state (or external trigger).
+    - Calls the `transcribe_audio` function (likely outside the main graph loop or as the entry point for voice).
+    - Updates `user_input` with the transcribed text.
+    - Transitions to `InputParserNode`.
+- **`WebGroundingNode`**:
+    - Triggered when `intent` is `grounding_query` or when the `InputParserNode` determines external info is needed.
+    - Takes `grounding_query` from the state.
+    - Calls the `google_search` tool via the `ToolExecutorNode`.
+    - Stores results in `grounding_results`.
+    - Transitions to `ResponseFormatterNode`.
 
-#### Implementation Example
-```python
-def recipe_detail_node(state: KitchenState) -> KitchenState:
-    """Fetch and present detailed recipe information."""
-    # Extract recipe ID from state
-    recipe_id = extract_recipe_id(state)
-    
-    # Get recipe details
-    recipe = get_recipe_by_id(recipe_id)
-    
-    # Get ratings and reviews
-    reviews = get_ratings_and_reviews_by_recipe_id(recipe_id, limit=3)
-    
-    # Format response
-    response = format_recipe_detail(recipe, reviews)
-    
-    return state | {"messages": [("assistant", response)]}
-```
-
-## 5. Recipe Customization Node with Few-Shot Learning
-
-### Title: Implement Recipe Customization with Few-Shot Learning
-
-#### Description
-Create a node to handle recipe customization requests using few-shot prompting techniques.
-
-#### Task Details
-- Implement few-shot prompting for common recipe modifications
-- Handle dietary restriction adaptations
-- Support ingredient substitutions based on user preferences
-- Adjust cooking times and serving sizes
-
-#### Few-Shot Examples to Include
-```
-Example 1:
-User: "Can you make this recipe vegetarian?"
-Assistant: [FEW-SHOT RESPONSE: Shows how to replace meat with plant-based alternatives while maintaining flavor profile]
-
-Example 2:
-User: "I need to make this gluten-free."
-Assistant: [FEW-SHOT RESPONSE: Shows how to substitute wheat-based ingredients with gluten-free alternatives]
-
-Example 3:
-User: "I want to reduce the calories in this recipe."
-Assistant: [FEW-SHOT RESPONSE: Shows how to modify cooking techniques and ingredients to reduce calorie content]
-```
-
-## 6. Nutrition Analysis Node
-
-### Title: Create Nutrition Analysis Node
-
-#### Description
-Implement a node that can analyze the nutritional content of recipes and ingredients.
-
-#### Task Details
-- Create a node that triggers on nutrition-related queries
-- Use `fetch_nutrition_from_openfoodfacts` to get nutritional data for ingredients
-- Implement aggregation of nutritional values across recipe ingredients
-- Format and present nutritional information with comparisons to daily values
-
-#### Implementation Example
-```python
-def nutrition_node(state: KitchenState) -> KitchenState:
-    """Analyze and present nutritional information for recipes or ingredients."""
-    # Implementation details here...
-```
-
-## 7. Audio Input Handling
-
-### Title: Implement Voice Input Processing
-
-#### Description
-Create a node to handle voice input using our existing transcription functionality.
-
-#### Task Details
-- Implement a node that processes audio input
-- Use the `transcribe_audio` function to convert speech to text
-- Update the conversation state with the transcribed text
-- Ensure seamless transition between voice and text interactions
-
-#### Implementation Example
-```python
-def voice_input_node(state: KitchenState) -> KitchenState:
-    """Process voice input and update the conversation state."""
-    # Implementation details here...
-```
-
-## 8. Web Grounding Node
-
-### Title: Add Web Search Grounding
-
-#### Description
-Create a node that can supplement recipe information with data from the web.
-
-#### Task Details
-- Implement a node that triggers when additional information is needed
-- Use Google Search API to find relevant supplemental information
-- Integrate web search results into recipe recommendations and answers
-- Present grounded information with proper attribution
-
-#### Implementation Example
-```python
-def web_grounding_node(state: KitchenState) -> KitchenState:
-    """Supplement assistant responses with web search results."""
-    # Implementation details here...
-```
-
-## 9. Conditional Edge Functions
+## 5. Conditional Edge Functions
 
 ### Title: Define Conditional Transitions
 
 #### Description
-Create functions to determine the next node in the graph based on the current state.
+Create functions to dynamically route the workflow based on the current state and the output of the `InputParserNode`.
 
 #### Task Details
-- Implement intent recognition to route between nodes
-- Define exit conditions for ending the conversation
-- Ensure appropriate handling of context across multiple turns
-- Create specialized routing for voice vs. text input
+- Implement `route_after_parsing`: Takes the state (specifically the `intent` field set by `InputParserNode`) and returns the name of the next node (e.g., "RecipeSearchNode", "RecipeDetailNode", "HumanInputNode", "WebGroundingNode", "END").
+- Implement `route_after_human`: Checks the `finished` flag in the state. If true, returns `END`; otherwise, returns "InputParserNode".
+- Implement `route_after_tool_execution`: Determines the next step after a tool runs (usually back to `InputParserNode` to process results, or potentially to `ResponseFormatterNode`).
 
-#### Implementation Example
+#### Implementation Example (`route_after_parsing`)
 ```python
-def route_based_on_intent(state: KitchenState) -> str:
-    """Route to the appropriate node based on detected intent."""
-    # Extract the last user message
-    last_msg = state["messages"][-1]
-    
-    # Detect intent (simplified example)
-    if "search" in last_msg.lower():
-        return "recipe_search"
-    elif "nutrition" in last_msg.lower():
-        return "nutrition_analysis"
-    # More routing conditions...
-    
-    # Default to general chat
-    return "chatbot"
+def route_after_parsing(state: KitchenState) -> str:
+    """Route based on the intent determined by the InputParserNode."""
+    intent = state.get("intent")
+    if intent == "search_recipe":
+        return "RecipeSearchNode"
+    elif intent == "get_details":
+        return "RecipeDetailNode"
+    elif intent == "customize":
+        return "RecipeCustomizationNode"
+    elif intent == "nutrition":
+        return "NutritionAnalysisNode"
+    elif intent == "grounding_query":
+        return "WebGroundingNode"
+    elif state.get("needs_clarification"):
+        return "HumanInputNode" # Ask user for more info
+    elif intent == "exit":
+         return END
+    else: # Default or general chat
+        return "ResponseFormatterNode" # Format the chat response
 ```
 
-## 10. Graph Assembly and Compilation
+## 6. Graph Assembly and Compilation
 
 ### Title: Assemble and Compile the Complete Graph
 
 #### Description
-Define the full graph structure with all nodes and transitions, then compile it for execution.
+Define the full graph structure connecting all nodes and edges, then compile it into an executable LangGraph application.
 
 #### Task Details
-- Add all nodes to the graph
-- Define conditional and direct edges between nodes
-- Specify start and end conditions
-- Compile the graph and validate its structure
+- Instantiate `StateGraph(KitchenState)`.
+- Add all defined nodes (`InputParserNode`, `HumanInputNode`, `ToolExecutorNode`, `RecipeSearchNode`, `RecipeDetailNode`, `NutritionAnalysisNode`, `RecipeCustomizationNode`, `WebGroundingNode`, `ResponseFormatterNode`, potentially `AudioInputNode` if integrated differently).
+- Define the entry point (likely `InputParserNode` or potentially `AudioInputNode` depending on UI).
+- Add direct edges (e.g., `ToolExecutorNode` -> `InputParserNode`, `ResponseFormatterNode` -> `HumanInputNode`).
+- Add conditional edges using the routing functions (e.g., from `InputParserNode` based on `intent`, from `HumanInputNode` based on `finished`).
+- Compile the graph using `graph_builder.compile()`.
 
-#### Implementation Example
-```python
-# Set up the graph
-graph_builder = StateGraph(KitchenState)
-
-# Add all the nodes
-graph_builder.add_node("chatbot", chatbot_node)
-graph_builder.add_node("human", human_node)
-graph_builder.add_node("recipe_search", recipe_search_node)
-graph_builder.add_node("recipe_detail", recipe_detail_node)
-# Add the rest of the nodes...
-
-# Define edges and conditional transitions
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_edge("chatbot", "human")
-graph_builder.add_conditional_edges("human", route_based_on_intent)
-# Add the rest of the edges...
-
-# Compile the graph
-kitchen_assistant_graph = graph_builder.compile()
-```
-
-## 11. User Interface Integration
+## 7. User Interface Integration (Conceptual)
 
 ### Title: Integrate with User Interface
 
 #### Description
-Connect the LangGraph workflow with the user interface components.
+Connect the compiled LangGraph application with the conceptual user interface components (text input, voice selection/recording).
 
 #### Task Details
-- Create handlers for text input from the UI
-- Implement audio recording and processing for voice input
-- Design output formatting for different response types
-- Ensure state persistence across interactions
+- **Input**:
+    - Text: Pass text from the UI input field to the `HumanInputNode`.
+    - Voice: Trigger `AudioInputNode` with the selected/recorded audio file path. The transcribed text then flows to `InputParserNode`.
+- **Output**:
+    - Display `last_assistant_response` from the state in the UI chat area.
+    - Format recipe search results, details, nutritional info, etc., appropriately for display.
+- **State**: Maintain conversation history (`messages`) and potentially other relevant state parts (like current search results) for display in the UI.
 
-#### Implementation Notes
-- Use the existing UI tabs for text and voice input
-- Maintain conversation history in the UI
-- Format recipe displays with appropriate styling
-- Include visual indicators for processing state
-
-## 12. Testing and Refinement
+## 8. Testing and Refinement
 
 ### Title: Test and Refine the Complete System
 
 #### Description
-Test the full system with various user scenarios and refine based on results.
+Conduct thorough testing covering various user scenarios, interaction flows, and edge cases. Refine prompts, routing logic, and node implementations based on test results.
 
 #### Task Details
-- Create test cases for different user intents
-- Validate proper transitions between nodes
-- Test error handling and recovery
-- Tune prompts and system instructions based on observed behavior
-
-#### Test Scenarios
-1. Recipe search by ingredients
-2. Recipe customization for dietary restrictions
-3. Nutritional analysis requests
-4. Voice input processing
-5. Web-grounded answers to cooking questions
+- **Scenario Testing**:
+    - Simple recipe search ("Find chicken recipes").
+    - Filtered search ("Find vegan Italian pasta under 30 minutes").
+    - Recipe details request ("Tell me more about recipe 12345").
+    - Nutrition query ("What's the nutrition for butter?", "How many calories in recipe 12345?").
+    - Customization ("Make recipe 12345 gluten-free", "Substitute tofu for chicken in recipe 67890").
+    - Grounding ("What's a good substitute for eggs in baking?").
+    - Voice commands for all above scenarios.
+    - Multi-turn conversations involving clarification and refinement.
+    - Error handling (invalid recipe ID, API failures, unclear requests).
+- **Validation**: Check if the correct nodes are activated, tools are called with correct parameters, state is updated appropriately, and responses are accurate and helpful.
+- **Refinement**: Adjust system prompts, few-shot examples, routing conditions, and tool descriptions based on performance.
 
 ## Conclusion
 
-This plan outlines the implementation of a comprehensive LangGraph workflow for our Kitchen Management Assistant. By following these steps, we'll create a powerful, stateful application that effectively leverages our existing components while adding the flexibility and robustness of a graph-based architecture.
+This revised plan provides a detailed roadmap for building the Kitchen Management Assistant using LangGraph. It leverages the completed data processing, storage, and function-calling components, integrates the planned Gen AI capabilities (RAG, Function Calling, Few-Shot, Grounding, Audio), and follows patterns from the BaristaBot example for a robust, stateful agent architecture. The focus is now on implementing the nodes, edges, and routing logic within the LangGraph framework.
 
-The implementation will enable seamless user interactions across different modalities (text and voice) while providing valuable recipe discovery, customization, and nutrition analysis features.
+---
