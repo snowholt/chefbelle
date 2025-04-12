@@ -2,7 +2,7 @@ import sqlite3
 import json
 import os
 import requests
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Dict, Optional
 
 # Path to SQL database
 DB_PATH = "final/kitchen_db.sqlite"
@@ -113,34 +113,49 @@ def get_recipe_by_id(recipe_id: str) -> Optional[dict]:
         columns = [col[0] for col in cursor.description]
         recipe = dict(zip(columns, recipe_data))
 
-        # Standardize field parsing
+        # Standardize field parsing - attempt JSON, fallback for simple strings
         for field in ["steps", "ingredients", "nutrition", "tags", "dietary_tags", "normalized_ingredients"]:
-            if recipe.get(field) and isinstance(recipe[field], str):
+            value = recipe.get(field)
+            if isinstance(value, str):
                 try:
-                    recipe[field] = json.loads(recipe[field])
+                    recipe[field] = json.loads(value)
                 except json.JSONDecodeError:
-                    # If it's not valid JSON, maybe split by a common delimiter or leave as is?
-                    # For now, leave as string if parsing fails, but log it.
-                    print(f"Warning: Could not parse JSON for field '{field}' in recipe ID {recipe_id}. Value: {recipe[field][:100]}...")
-                    pass # Keep as string if parsing fails
+                    # If JSON fails, and it's one of the list-like fields, try splitting by space
+                    if field in ["ingredients", "tags", "dietary_tags", "normalized_ingredients"]:
+                         recipe[field] = value.split() # Split space-separated string into list
+                         print(f"Info: Field '{field}' in recipe ID {recipe_id} was treated as space-separated string.")
+                    # else: # Keep as string if it's not expected to be a list (like 'steps' or 'nutrition' if not JSON)
+                    #    print(f"Warning: Could not parse JSON for field '{field}' in recipe ID {recipe_id}. Kept as string. Value: {value[:100]}...")
+                    #    pass # Keep as string if parsing fails and it's not a simple list field
+                    # Simplified: Just split the known list-like fields if JSON fails
+                    elif field == "steps": # Keep steps as string if not JSON
+                         print(f"Warning: Could not parse JSON for field 'steps' in recipe ID {recipe_id}. Kept as string.")
+                         pass # Keep as string
+                    else: # Handle nutrition or other fields if necessary
+                         print(f"Warning: Could not parse JSON for field '{field}' in recipe ID {recipe_id}. Value: {value[:100]}...")
+                         pass # Keep as string or handle differently if needed
+
 
         # Fetch nutrition for normalized ingredients
         ingredient_nutrition_list = []
         normalized_ingredients = recipe.get("normalized_ingredients")
 
-        # Ensure normalized_ingredients is a list before iterating
+        # Ensure normalized_ingredients is now a list before iterating
         if isinstance(normalized_ingredients, list):
             for ingredient in normalized_ingredients:
                 if isinstance(ingredient, str): # Ensure it's a string before fetching
-                     nutrition_data = fetch_nutrition_from_openfoodfacts(ingredient)
-                     ingredient_nutrition_list.append(nutrition_data)
+                     # Check for empty strings that might result from splitting
+                     if ingredient.strip():
+                         nutrition_data = fetch_nutrition_from_openfoodfacts(ingredient)
+                         ingredient_nutrition_list.append(nutrition_data)
                 else:
                      # Handle cases where items in the list aren't strings
                      ingredient_nutrition_list.append({"status": "unavailable", "reason": f"Invalid ingredient format: {type(ingredient)}"})
+        # Removed the 'elif normalized_ingredients is not None:' block as the splitting logic above handles the string case.
+        # If it's still not a list after the processing above, something else is wrong.
         elif normalized_ingredients is not None:
-            # Log if it's not None but also not a list
-             print(f"Warning: 'normalized_ingredients' field in recipe ID {recipe_id} is not a list. Type: {type(normalized_ingredients)}")
-             ingredient_nutrition_list.append({"status": "unavailable", "reason": "normalized_ingredients field is not a list"})
+             print(f"Error: 'normalized_ingredients' field in recipe ID {recipe_id} is not a list after processing. Type: {type(normalized_ingredients)}")
+             ingredient_nutrition_list.append({"status": "unavailable", "reason": "normalized_ingredients field could not be processed into a list"})
 
 
         recipe['ingredient_nutrition'] = ingredient_nutrition_list # Add the fetched nutrition data
@@ -176,7 +191,7 @@ def get_ratings_and_reviews_by_recipe_id(recipe_id: str, limit: int) -> Optional
         conn.close()
 
 # These are the Python functions defined above.
-db_tools = [list_tables, describe_table, execute_query, get_ratings_and_reviews_by_recipe_id, get_recipe_by_id]
+db_tools = [list_tables, describe_table, execute_query, get_ratings_and_reviews_by_recipe_id, get_recipe_by_id, fetch_nutrition_from_openfoodfacts]
 
 instruction = """You are a helpful chatbot that can interact with an SQL database for a Kitchen Assistant.
 You can retrieve information about recipes and user interactions (ratings and reviews).
@@ -208,8 +223,27 @@ For example:
 Be mindful of potential SQL injection if using `execute_query` with user-provided input, although in this setup, the queries are constructed by you based on the user's intent.
 """
 
-# Example usage (assuming GOOGLE_API_KEY is set and genai/display are imported)
-# client = genai.Client(api_key=GOOGLE_API_KEY)
-# chat = client.chats.create(...)
-# resp = chat.send_message("Get me the details for recipe 71373")
-# display(Markdown(resp.text)) # This will now include ingredient_nutrition
+
+
+# These are the Python functions defined above.
+
+
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+# Start a chat with automatic function calling enabled.
+chat = client.chats.create(
+    model="gemini-2.0-flash",
+    config=types.GenerateContentConfig(
+        system_instruction=instruction,
+        tools=db_tools,
+    ),
+)
+
+
+
+resp = chat.send_message("""check recipe id=71373 in both tables (recipes and interactions) , 
+check both tables please, and return full info, start with recipes table,
+then check the nutritions by calling the fetch_nutrition_from_openfoodfacts function and get the accumulated info of Ingredients inside of the recipe,
+then interactions table, and get the info of that recipe_id, however show only overal rating for that recipe, and 3 most recent reviews not all of them. 
+output in markdown format""")
+display(Markdown(resp.text))
