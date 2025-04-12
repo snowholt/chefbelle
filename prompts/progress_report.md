@@ -118,6 +118,11 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 
 **Summary**:
 - Implemented Step 1 of the LangGraph plan: Defined the KitchenState TypedDict schema. This schema includes fields for conversation history, user input, parsed intent, action parameters, retrieved data (search results, recipe details, nutrition, grounding), user context (ingredients, preferences), and control flow flags. It utilizes Annotated and add_messages for proper message handling within LangGraph.
+- Defined KITCHEN_ASSISTANT_SYSINT with detailed instructions for the Gemini model, covering capabilities and tool usage rules (including the limit parameter for reviews).
+- Created input_parser_node: Simulates LLM-based intent recognition and parameter extraction from user input (text/transcribed audio). Handles basic chat responses and flags need for clarification. (Full LLM integration pending).
+- Created human_input_node: Manages text-based user interaction, displays the last assistant response, gets user input, and detects exit commands.
+- Created response_formatter_node: Takes processed data from the state (search results, recipe details, nutrition info, grounding results) and formats it into a user-friendly natural language response, updating last_assistant_response. 
+- Clears processed data fields from the state.
 
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
