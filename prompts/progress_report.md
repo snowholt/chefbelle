@@ -123,7 +123,10 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 - Created human_input_node: Manages text-based user interaction, displays the last assistant response, gets user input, and detects exit commands.
 - Created response_formatter_node: Takes processed data from the state (search results, recipe details, nutrition info, grounding results) and formats it into a user-friendly natural language response, updating last_assistant_response. 
 - Clears processed data fields from the state.
-
+- Defined stateless tools (gemini_recipe_similarity_search, gemini_interaction_similarity_search, get_recipe_by_id, get_ratings_and_reviews_by_recipe_id, fetch_nutrition_from_openfoodfacts, google_search) using the @tool decorator, based on functions from the capstone notebook.
+- Created placeholders using @tool for stateful actions (customize_recipe, calculate_recipe_nutrition, update_user_context) to allow the LLM to recognize these intents.
+- Instantiated LangGraph's ToolNode (tool_executor_node) with the list of stateless tools for automatic execution.
+- Updated the input_parser_node to use ChatGoogleGenerativeAI bound with all defined tools (llm_with_all_tools). This enables the LLM to generate tool_calls based on user input and system instructions. The node now processes the LLM's - AIMessage to either extract tool calls or handle direct chat responses/clarifications, updating the state's intent accordingly.
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
