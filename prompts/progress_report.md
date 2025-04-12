@@ -151,6 +151,16 @@ RecipeCustomizationNode -> ResponseFormatterNode (to format customization output
 ResponseFormatterNode -> HumanInputNode (to present the final response).
 - Compiled the graph using graph_builder.compile(), making it ready for execution.
 - Included optional graph visualization.
+- Utilized ipywidgets to create a basic interactive interface within the notebook, simulating text input, voice file selection, submission buttons, and an output area for conversation display.
+- Defined button callback functions (on_text_submit, on_voice_submit).
+- Implemented the core interaction loop within these callbacks:
+   - User input (text or selected voice file) is captured.
+   - Voice input is passed to a (placeholder) transcribe_audio function.
+   - The global KitchenState is updated with the new HumanMessage.
+   - The compiled kitchen_assistant_graph is invoked using .stream() starting from the InputParserNode.
+   - The graph runs until it requires further human input (implicitly after ResponseFormatterNode) or reaches the END state.
+   - The conversation history and the assistant's final response for the turn (last_assistant_response from the state) are displayed in the output widget.
+- The human_input_node is effectively replaced by this external UI loop logic, separating input gathering from graph processing.
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
