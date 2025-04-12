@@ -127,6 +127,12 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 - Created placeholders using @tool for stateful actions (customize_recipe, calculate_recipe_nutrition, update_user_context) to allow the LLM to recognize these intents.
 - Instantiated LangGraph's ToolNode (tool_executor_node) with the list of stateless tools for automatic execution.
 - Updated the input_parser_node to use ChatGoogleGenerativeAI bound with all defined tools (llm_with_all_tools). This enables the LLM to generate tool_calls based on user input and system instructions. The node now processes the LLM's - AIMessage to either extract tool calls or handle direct chat responses/clarifications, updating the state's intent accordingly.
+- Created dedicated Python functions for each specific action node (recipe_search_node, recipe_detail_node, nutrition_analysis_node, recipe_customization_node, audio_input_node, web_grounding_node).
+- Nodes primarily prepare AIMessage objects with appropriate tool_calls based on the intent and parameters stored in the KitchenState. They retrieve necessary arguments (like search_params, selected_recipe_id, nutrition_query, grounding_query) from the state.
+- The recipe_detail_node prepares calls for both recipe details and reviews simultaneously.
+- The nutrition_analysis_node handles preparing tool calls for single ingredients or multiple ingredients within a recipe (aggregation logic deferred).
+recipe_customization_node and audio_input_node are included as structural placeholders, noting where LLM calls with few-shot prompts or external transcription functions would be integrated.
+- These nodes return dictionaries containing the AIMessage with tool_calls to update the state, signaling the next step is tool execution via the ToolExecutorNode. Basic error/clarification handling is included if necessary input state is missing.
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
