@@ -133,6 +133,11 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 - The nutrition_analysis_node handles preparing tool calls for single ingredients or multiple ingredients within a recipe (aggregation logic deferred).
 recipe_customization_node and audio_input_node are included as structural placeholders, noting where LLM calls with few-shot prompts or external transcription functions would be integrated.
 - These nodes return dictionaries containing the AIMessage with tool_calls to update the state, signaling the next step is tool execution via the ToolExecutorNode. Basic error/clarification handling is included if necessary input state is missing.
+- Defined route_after_parsing: This function inspects the latest AIMessage from the InputParserNode. If tool_calls are present, it routes to ToolExecutorNode. If the intent is customize, it routes to the (yet to be fully implemented) 
+RecipeCustomizationNode. If the intent is exit, it routes to END. Otherwise (for chat, clarification, errors), it routes to ResponseFormatterNode.
+- Defined route_after_human: Checks the finished flag in the state. Routes to END if true, otherwise routes back to - InputParserNode to process the new user input.
+- Conceptualized static routing: ToolExecutorNode routes back to InputParserNode to process tool results. 
+ RecipeCustomizationNode (when implemented) routes to ResponseFormatterNode. ResponseFormatterNode routes to HumanInputNode.
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
