@@ -161,6 +161,12 @@ ResponseFormatterNode -> HumanInputNode (to present the final response).
    - The graph runs until it requires further human input (implicitly after ResponseFormatterNode) or reaches the END state.
    - The conversation history and the assistant's final response for the turn (last_assistant_response from the state) are displayed in the output widget.
 - The human_input_node is effectively replaced by this external UI loop logic, separating input gathering from graph processing.
+
+- Defined a test_scenario function to run individual test cases through the compiled LangGraph (kitchen_assistant_graph). This function takes initial messages, runs .invoke(), prints key parts of the final state, and performs basic validation checks against expected intents or tool calls.
+- Created a list (test_scenarios) containing various test cases covering simple search, filtered search, details requests, nutrition queries, customization (placeholder), grounding, simulated voice input, and exit conditions.
+- Included code to loop through and execute these scenarios, printing debug information and validation warnings.
+- Added a Markdown section (Refinement Guide) outlining common issues observed during testing (e.g., incorrect routing, tool calls, arguments, poor formatting) and suggesting areas for refinement (system prompts, tool descriptions, node logic, routing functions).
+
 **Key Technologies Used**:
 - LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
 
