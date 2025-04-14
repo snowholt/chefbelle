@@ -32,17 +32,18 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 **Status**: 🔄 Partially Completed
 
 **Summary**:
-- Implemented a function (`transcribe_audio`) for speech-to-text conversion supporting OpenAI Whisper-1 and Google Cloud Speech-to-Text (with Whisper-1 preferred due to simpler setup).
+- Implemented a function (`transcribe_audio`) for speech-to-text conversion supporting OpenAI Whisper-1 (preferred) and Google Cloud Speech-to-Text.
 - Set up basic infrastructure for handling audio files (OGG, WAV).
-- Initial setup for a dual text/voice interface concept. Full integration and user preference management are pending.
+- Conceptual UI integration includes a placeholder for voice file selection and triggering transcription.
+- Full integration into the LangGraph flow (e.g., dedicated `AudioInputNode`) and robust user preference management are pending.
 
 **Gen AI Capabilities Demonstrated**:
 - Audio understanding (Speech-to-Text).
 - Multimodal input handling concept.
 
 **Challenges & Solutions**:
-- Addressed complexities in Google Cloud Speech-to-Text authentication by favoring Whisper-1.
-- Handled different audio formats.
+- Simplified setup by favoring Whisper-1 over Google STT authentication complexities.
+- Need to design the trigger mechanism for voice input within the agent/UI loop.
 
 ---
 
@@ -50,24 +51,24 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 **Status**: ✅ Completed
 
 **Summary**:
-- Developed functions for interacting with the hybrid storage system:
+- Developed Python functions for interacting with the hybrid storage system:
     - SQL Database: `list_tables`, `describe_table`, `execute_query`.
     - Recipe Retrieval: `get_recipe_by_id`, `get_ratings_and_reviews_by_recipe_id`.
-- Integrated live nutritional data fetching for ingredients using the Open Food Facts API (`fetch_nutrition_from_openfoodfacts`).
-- Configured the Gemini model (`gemini-2.0-flash`) to use these functions as tools, enabling natural language queries for recipe details and reviews.
+- Integrated live nutritional data fetching for *individual* ingredients using the Open Food Facts API (`fetch_nutrition_from_openfoodfacts`).
+- These functions are now defined as tools for the LangGraph agent.
 
 **Key Technologies Used**:
-- SQLite, ChromaDB, Google Gemini API (Function Calling), Open Food Facts API, Pandas.
+- SQLite, ChromaDB, Open Food Facts API, Python (`@tool` decorator).
 
 **Gen AI Capabilities Demonstrated**:
-- Function Calling (Tool Use).
-- Natural Language Understanding for database interaction.
-- Structured Output Generation (API responses).
+- Function definition for Tool Use.
+- Database interaction logic.
+- External API integration.
 
 **Challenges & Solutions**:
-- Designed effective function schemas for Gemini.
-- Ensured robust error handling for external API calls (Open Food Facts).
-- Handled parsing of potentially inconsistent data formats stored in the database.
+- Designed functions to return structured data (JSON strings) suitable for agent processing.
+- Ensured robust error handling for external API calls.
+- Handled parsing of potentially inconsistent data formats stored in the database within retrieval functions.
 
 ---
 
@@ -76,134 +77,121 @@ Develop an AI-powered assistant using Google Gemini and LangGraph to help users 
 
 **Summary**:
 - Implemented Retrieval Augmented Generation (RAG) using the ChromaDB vector store.
-- Developed semantic search functions (`gemini_recipe_similarity_search`, `gemini_interaction_similarity_search`) to find recipes or reviews based on natural language queries and similarity.
-- Added metadata filtering capabilities (cuisine, dietary tags, cooking time) to the semantic search.
+- Developed semantic search functions (`gemini_recipe_similarity_search`, `gemini_interaction_similarity_search`) now defined as tools for the agent.
+- Added metadata filtering capabilities (cuisine, dietary tags, cooking time) to the `gemini_recipe_similarity_search` tool.
 
 **Key Technologies Used**:
-- ChromaDB, Google Gemini API, Pandas.
+- ChromaDB, Python (`@tool` decorator).
 
 **Gen AI Capabilities Demonstrated**:
-- Retrieval Augmented Generation (RAG).
-- Semantic Search (Vector Embeddings).
-- Natural Language Understanding for complex queries.
+- Retrieval Augmented Generation (RAG) function definition.
+- Semantic Search (Vector Embeddings) function definition.
+- Metadata filtering within search tools.
 
 **Challenges & Solutions**:
-- Optimized ChromaDB setup for efficient batch processing.
-- Constructed meaningful document representations for effective vector search.
-- Integrated RAG search with metadata filtering.
+- Optimized ChromaDB setup for efficient batch processing during initial setup.
+- Constructed meaningful document representations for effective vector search during initial setup.
+- Encapsulated search and filtering logic into reusable tool functions.
 
 ---
-
 
 #### Step 5: Grounding with Google Search
-**Status**: ✅ Demonstrated
+**Status**: ✅ Demonstrated & Tool Defined
 
 **Summary**:
-- Demonstrated the use of Google Search grounding with the Gemini API (`google_search` tool).
-- Showcased how grounding can be used to fetch up-to-date external information to answer questions beyond the internal dataset (e.g., finding ingredient substitutes). Integration into the main agent is pending.
+- Demonstrated the use of Google Search grounding with the Gemini API directly.
+- Defined a placeholder `google_search` tool using the `@tool` decorator for integration into the LangGraph agent. Full API integration within the tool is pending but the agent can now *call* it.
 
 **Key Technologies Used**:
-- Google Gemini API (Grounding).
+- Google Gemini API (Grounding concept), Python (`@tool` decorator).
 
 **Gen AI Capabilities Demonstrated**:
-- Grounding.
+- Grounding (concept and tool definition).
 
 **Challenges & Solutions**:
-- Simple demonstration; full integration requires deciding when grounding is necessary within the agent flow.
+- Tool defined, but requires actual Google Search API implementation/credentials for full functionality within the agent.
 
 ---
 
-#### Step 5: Function Calling & AI Agent with LangGraph
-**Status**: 🔄 In Progress
+#### Step 6: LangGraph Agent Implementation
+**Status**: ✅ Partially Completed (Core Structure Built & Tested)
 
 **Summary**:
-- Implemented Step 1 of the LangGraph plan: Defined the KitchenState TypedDict schema. This schema includes fields for conversation history, user input, parsed intent, action parameters, retrieved data (search results, recipe details, nutrition, grounding), user context (ingredients, preferences), and control flow flags. It utilizes Annotated and add_messages for proper message handling within LangGraph.
-- Defined KITCHEN_ASSISTANT_SYSINT with detailed instructions for the Gemini model, covering capabilities and tool usage rules (including the limit parameter for reviews).
-- Created input_parser_node: Simulates LLM-based intent recognition and parameter extraction from user input (text/transcribed audio). Handles basic chat responses and flags need for clarification. (Full LLM integration pending).
-- Created human_input_node: Manages text-based user interaction, displays the last assistant response, gets user input, and detects exit commands.
-- Created response_formatter_node: Takes processed data from the state (search results, recipe details, nutrition info, grounding results) and formats it into a user-friendly natural language response, updating last_assistant_response. 
-- Clears processed data fields from the state.
-- Defined stateless tools (gemini_recipe_similarity_search, gemini_interaction_similarity_search, get_recipe_by_id, get_ratings_and_reviews_by_recipe_id, fetch_nutrition_from_openfoodfacts, google_search) using the @tool decorator, based on functions from the capstone notebook.
-- Created placeholders using @tool for stateful actions (customize_recipe, calculate_recipe_nutrition, update_user_context) to allow the LLM to recognize these intents.
-- Instantiated LangGraph's ToolNode (tool_executor_node) with the list of stateless tools for automatic execution.
-- Updated the input_parser_node to use ChatGoogleGenerativeAI bound with all defined tools (llm_with_all_tools). This enables the LLM to generate tool_calls based on user input and system instructions. The node now processes the LLM's - AIMessage to either extract tool calls or handle direct chat responses/clarifications, updating the state's intent accordingly.
-- Created dedicated Python functions for each specific action node (recipe_search_node, recipe_detail_node, nutrition_analysis_node, recipe_customization_node, audio_input_node, web_grounding_node).
-- Nodes primarily prepare AIMessage objects with appropriate tool_calls based on the intent and parameters stored in the KitchenState. They retrieve necessary arguments (like search_params, selected_recipe_id, nutrition_query, grounding_query) from the state.
-- The recipe_detail_node prepares calls for both recipe details and reviews simultaneously.
-- The nutrition_analysis_node handles preparing tool calls for single ingredients or multiple ingredients within a recipe (aggregation logic deferred).
-recipe_customization_node and audio_input_node are included as structural placeholders, noting where LLM calls with few-shot prompts or external transcription functions would be integrated.
-- These nodes return dictionaries containing the AIMessage with tool_calls to update the state, signaling the next step is tool execution via the ToolExecutorNode. Basic error/clarification handling is included if necessary input state is missing.
-- Defined route_after_parsing: This function inspects the latest AIMessage from the InputParserNode. If tool_calls are present, it routes to ToolExecutorNode. If the intent is customize, it routes to the (yet to be fully implemented) 
-RecipeCustomizationNode. If the intent is exit, it routes to END. Otherwise (for chat, clarification, errors), it routes to ResponseFormatterNode.
-- Defined route_after_human: Checks the finished flag in the state. Routes to END if true, otherwise routes back to - InputParserNode to process the new user input.
-- Conceptualized static routing: ToolExecutorNode routes back to InputParserNode to process tool results. 
- RecipeCustomizationNode (when implemented) routes to ResponseFormatterNode. ResponseFormatterNode routes to HumanInputNode.
-
-- Instantiated StateGraph with the KitchenState schema.
-- Added the core nodes defined in previous steps: InputParserNode, HumanInputNode, ToolExecutorNode (for stateless tools), RecipeCustomizationNode (placeholder), and ResponseFormatterNode.
-Set the InputParserNode as the graph's entry point (START).
-- Defined conditional edges:
-From InputParserNode using route_after_parsing to direct flow to tool execution, customization, response formatting, or the end state based on the parser's output.
-From HumanInputNode using route_after_human to either loop back to the parser or end the graph.
-- Defined direct edges:
-ToolExecutorNode -> InputParserNode (to process tool results).
-RecipeCustomizationNode -> ResponseFormatterNode (to format customization output).
-ResponseFormatterNode -> HumanInputNode (to present the final response).
-- Compiled the graph using graph_builder.compile(), making it ready for execution.
-- Included optional graph visualization.
-- Utilized ipywidgets to create a basic interactive interface within the notebook, simulating text input, voice file selection, submission buttons, and an output area for conversation display.
-- Defined button callback functions (on_text_submit, on_voice_submit).
-- Implemented the core interaction loop within these callbacks:
-   - User input (text or selected voice file) is captured.
-   - Voice input is passed to a (placeholder) transcribe_audio function.
-   - The global KitchenState is updated with the new HumanMessage.
-   - The compiled kitchen_assistant_graph is invoked using .stream() starting from the InputParserNode.
-   - The graph runs until it requires further human input (implicitly after ResponseFormatterNode) or reaches the END state.
-   - The conversation history and the assistant's final response for the turn (last_assistant_response from the state) are displayed in the output widget.
-- The human_input_node is effectively replaced by this external UI loop logic, separating input gathering from graph processing.
-
-- Defined a test_scenario function to run individual test cases through the compiled LangGraph (kitchen_assistant_graph). This function takes initial messages, runs .invoke(), prints key parts of the final state, and performs basic validation checks against expected intents or tool calls.
-- Created a list (test_scenarios) containing various test cases covering simple search, filtered search, details requests, nutrition queries, customization (placeholder), grounding, simulated voice input, and exit conditions.
-- Included code to loop through and execute these scenarios, printing debug information and validation warnings.
-- Added a Markdown section (Refinement Guide) outlining common issues observed during testing (e.g., incorrect routing, tool calls, arguments, poor formatting) and suggesting areas for refinement (system prompts, tool descriptions, node logic, routing functions).
+- **State Schema (`KitchenState`)**: Defined a comprehensive `TypedDict` schema to manage conversation history, user input, intents, parameters, tool results, user context, and control flow flags.
+- **System Instructions**: Created detailed system prompts (`KITCHEN_ASSISTANT_SYSINT`) guiding the LLM's behavior, capabilities, and tool usage rules (including `limit` for reviews).
+- **Core Nodes**:
+    - `InputParserNode`: Implemented using `ChatGoogleGenerativeAI` bound with all defined tools. Parses user input, determines intent, extracts parameters (via tool call arguments), and generates `AIMessage` (with content or `tool_calls`).
+    - `ResponseFormatterNode`: Implemented to format tool results or direct LLM responses into user-friendly text, updating `last_assistant_response`.
+    - `HumanInputNode` (Conceptual): Logic handled outside the graph via `ipywidgets` for notebook interaction.
+- **Tool Integration**:
+    - Defined stateless tools (`gemini_recipe_similarity_search`, `get_recipe_by_id`, `get_ratings_and_reviews_by_recipe_id`, `fetch_nutrition_from_openfoodfacts`, `google_search`) using `@tool`.
+    - Defined placeholder tools (`customize_recipe`, etc.) for intent recognition.
+    - Implemented `ToolExecutorNode` using `langgraph.prebuilt.ToolNode` to execute stateless tools.
+- **Action Nodes (Placeholders/Preparation)**:
+    - Implemented nodes (`recipe_search_node`, `recipe_detail_node`, `nutrition_analysis_node`, `web_grounding_node`) primarily to *prepare* the `AIMessage` with the correct `tool_calls` for the `ToolExecutorNode` based on the parser's intent.
+    - `RecipeCustomizationNode` implemented as a placeholder, indicating where few-shot LLM logic will reside.
+    - `NutritionAnalysisNode` prepares calls for `fetch_nutrition_from_openfoodfacts`; aggregation logic is deferred.
+- **Routing**: Implemented conditional edge functions (`route_after_parsing`, `route_after_human_or_audio`) to direct the flow between parsing, tool execution, customization, response formatting, and ending the conversation.
+- **Graph Assembly**: Assembled and compiled the nodes and edges into an executable `StateGraph` (`kitchen_assistant_graph`).
+- **Conceptual UI & Testing**:
+    - Implemented a basic UI simulation using `ipywidgets` to interact with the graph via `.stream()`.
+    - Set up a testing framework using `test_scenario` function and `.invoke()` to run predefined test cases and validate flow/outputs.
 
 **Key Technologies Used**:
-- LangGraph, Google Gemini API, SQLite, ChromaDB, Open Food Facts API.
+- LangGraph, Google Gemini API (Function Calling), Python (`TypedDict`, `@tool`).
 
-**Gen AI Capabilities Being Implemented**:
-- Agent-based reasoning and planning.
-- Advanced Function Calling / Tool Use orchestration.
-- State management and context maintenance.
+**Gen AI Capabilities Demonstrated/Implemented**:
+- Agent-based reasoning (structure defined).
+- Advanced Function Calling / Tool Use orchestration (graph defined).
+- State management and context maintenance (`KitchenState`).
+- Natural Language Understanding (within `InputParserNode`).
 
 **Challenges & Solutions**:
-- Designing a flexible and robust agent graph.
-- Ensuring seamless tool integration and error handling within the agent flow.
-- Managing conversational state effectively.
+- Designed a state schema to hold diverse information.
+- Structured the graph flow with conditional logic for different intents.
+- Differentiated between stateless tool execution (`ToolNode`) and custom node logic (placeholders).
+- Created a functional testing loop within the notebook using `ipywidgets` and `.stream()`.
+- Set up a scenario-based testing framework using `.invoke()`.
 
 ---
 
-
-
-
-
-#### Step 7: User Interface, Testing, and Deployment
-**Status**: ⬜ Not Started
+#### Step 7: User Interface, Full Testing, and Deployment
+**Status**: ⬜ Not Started (Conceptual UI in place)
 
 **Summary**:
-- Development of a user-friendly interface, comprehensive testing, and deployment strategy will follow the completion of the core agent logic.
+- A conceptual UI using `ipywidgets` exists for testing within the notebook.
+- Development of a dedicated user interface, comprehensive end-to-end testing (including refining prompts, few-shot examples, and node logic), and deployment strategy are future steps.
 
 ---
 
 ## Overall Progress Summary
 
-**Completed**: Data processing, hybrid storage setup, core function calling tools (DB access, RAG search, nutrition lookup), RAG implementation, grounding demonstration.
-**In Progress**: LangGraph agent development (Step 5), full voice integration (Step 2).
-**Not Started**: UI, Testing, Deployment (Step 7).
+**Completed**:
+- Data Processing & Storage (SQLite, ChromaDB)
+- Core Function/Tool Definitions (DB Access, RAG Search, Nutrition Lookup, Grounding Placeholder, Audio Placeholder)
+- RAG Implementation (via tools)
+- LangGraph Core Structure (State, Nodes, Edges, Compilation)
+- Conceptual UI & Testing Framework for LangGraph
+
+**In Progress**:
+- Full implementation of complex LangGraph nodes (e.g., `RecipeCustomizationNode` with few-shot, `NutritionAnalysisNode` aggregation).
+- Integration of actual audio input/transcription into the graph flow.
+- Integration of actual Google Search API into the `google_search` tool.
+- Refinement of LLM prompts and routing logic based on testing.
+
+**Not Started**:
+- Dedicated User Interface development.
+- Comprehensive end-to-end testing and evaluation.
+- Deployment strategy.
 
 ### Current Focus
-- Building and refining the LangGraph agent to orchestrate the various tools and capabilities for complex recipe management tasks.
+- Refining the existing LangGraph agent based on initial tests.
+- Implementing the detailed logic within placeholder nodes (Customization, Nutrition Aggregation).
+- Integrating functional audio and web search tools.
 
 ### Next Steps
-- Complete the LangGraph agent implementation (Step 5).
-- Fully integrate voice input/output (Step 2).
-- Begin planning for UI and testing (Step 7).
+- Implement full logic for `RecipeCustomizationNode` (using few-shot prompting) and `NutritionAnalysisNode` (aggregation).
+- Replace placeholder `google_search` and `transcribe_audio` tools/functions with actual implementations.
+- Integrate the `AudioInputNode` properly into the graph start or UI loop.
+- Conduct extensive testing using the `test_scenario` framework and refine prompts/logic.
+- Plan and begin development of a more robust User Interface.

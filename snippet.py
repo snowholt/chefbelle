@@ -1,89 +1,221 @@
+import re
+import matplotlib.pyplot as plt
+import numpy as np
+from typing import Dict, List, Tuple
+
+def extract_and_visualize_nutrition(response_text: str):
+    """
+    Extracts accumulated nutrition data from LLM response text and
+    visualizes it as a color-coded horizontal bar chart (% Daily Value).
+
+    Args:
+        response_text: The string output from the LLM containing recipe details.
+    """
+
+    # --- 1. Extraction using Regex ---
+    nutrition_section_match = re.search(
+        r"\*\*Ingredient Nutrition:\*\*\s*\n(.*?)(?:\n\n|$)",
+        response_text,
+        re.DOTALL | re.IGNORECASE
+    )
+
+    if not nutrition_section_match:
+        print("Could not find the 'Ingredient Nutrition:' section in the text.")
+        return
+
+    nutrition_text = nutrition_section_match.group(1).strip()
+
+    # Regex to capture individual ingredient lines and their key-value pairs
+    # Handles potential variations in spacing and key names slightly
+    ingredient_pattern = re.compile(
+        r"^\s*\*\s+\*\*(?P<ingredient>.*?):\*\*\s+(?P<data>.*?)$",
+        re.MULTILINE
+    )
+    kv_pattern = re.compile(r"([\w_]+)\s*=\s*'?([^,']+)'?") # Capture key=value or key='value'
+
+    accumulated_nutrition: Dict[str, float] = {
+        "calories_100g": 0.0,
+        "fat_100g": 0.0,
+        "saturated_fat_100g": 0.0,
+        "carbohydrates_100g": 0.0,
+        "sugars_100g": 0.0,
+        "fiber_100g": 0.0,
+        "proteins_100g": 0.0,
+        "sodium_100g": 0.0, # Keep in grams initially for consistency here
+    }
+    
+    processed_ingredients = 0
+    unavailable_ingredients = []
+    # Track ingredient counts per nutrient for averaging
+    nutrient_counts = {key: 0 for key in accumulated_nutrition.keys()}
+
+    for match in ingredient_pattern.finditer(nutrition_text):
+        ingredient_name = match.group("ingredient").strip()
+        data_str = match.group("data").strip()
+
+        # Check if this ingredient reported an error/unavailability
+        if "status=" in data_str.lower() and "unavailable" in data_str.lower():
+             unavailable_ingredients.append(ingredient_name)
+             print(f"Skipping unavailable/error data for ingredient: {ingredient_name}")
+             continue # Skip to next ingredient
+
+        ingredient_data = dict(kv_pattern.findall(data_str))
+        
+        valid_data_found = False
+        for key, value_str in ingredient_data.items():
+            # Normalize key (remove _100g suffix if present for matching)
+            norm_key = key.replace('_100g', '') + '_100g' 
+
+            if norm_key in accumulated_nutrition:
+                try:
+                    # Convert value to float, handle potential errors
+                    value = float(value_str)
+                    # Only count non-zero values for water and other ingredients
+                    if value > 0 or (ingredient_name.lower() != 'water' and norm_key != 'calories_100g'):
+                        accumulated_nutrition[norm_key] += value
+                        nutrient_counts[norm_key] += 1
+                    valid_data_found = True
+                except ValueError:
+                    print(f"Warning: Could not convert value '{value_str}' for key '{key}' in ingredient '{ingredient_name}' to float. Skipping.")
+            # else: # Uncomment if you want to see keys that weren't accumulated
+            #     print(f"Info: Key '{key}' from '{ingredient_name}' not in accumulation list.")
+
+        if valid_data_found:
+             processed_ingredients += 1
+             
+    if processed_ingredients == 0:
+         print("No valid nutrition data found to accumulate or plot.")
+         if unavailable_ingredients:
+              print(f"Unavailable ingredients: {', '.join(unavailable_ingredients)}")
+         return
+
+    # Calculate averages for each nutrient based on the number of ingredients that contributed values
+    average_nutrition = {}
+    for key, value in accumulated_nutrition.items():
+        count = nutrient_counts[key]
+        if count > 0:
+            average_nutrition[key] = value / count
+        else:
+            average_nutrition[key] = 0.0
+    
+    print(f"Processed {processed_ingredients} ingredients.")
+    if unavailable_ingredients:
+         print(f"Note: Could not get data for: {', '.join(unavailable_ingredients)}")
+    print("Average nutrition values:", average_nutrition)
+    print("Nutrition counts (ingredients contributing to each value):", nutrient_counts)
 
 
-# Initialize the client instead of using configure
-client = genai.Client(api_key=GOOGLE_API_KEY)
+    # --- 2. Normalization to % Daily Value (DV) ---
+    # Reference Daily Values (adjust based on your target audience/standard, e.g., FDA)
+    # Using FDA values as an example (approximated where needed)
+    # Note: These DVs are for a *total daily diet*, using the average values
+    #       per 100g of ingredient is more representative than using the sum.
+    daily_values = {
+        "calories_100g": 2000,  # kcal
+        "fat_100g": 78,      # g
+        "saturated_fat_100g": 20, # g
+        "carbohydrates_100g": 275,# g
+        "sugars_100g": 50,     # g (Reference for Added Sugars, using as proxy)
+        "fiber_100g": 28,      # g
+        "proteins_100g": 50,    # g
+        "sodium_100g": 2.3,    # g (Note: DV is 2300mg = 2.3g)
+    }
 
-# --- Part 1: Generate Nutritional Summary Text ---
+    percent_dv: Dict[str, float] = {}
+    actual_values: Dict[str, float] = {} # Store the raw average values
 
-nutritional_data_prompt = """Calculate the total nutritional values of a recipe based on the available data for its ingredients. Follow these rules:
+    for key, avg_value in average_nutrition.items():
+        dv = daily_values.get(key)
+        if dv is not None and dv > 0:
+            percent_dv[key] = round((avg_value / dv) * 100, 1)
+            actual_values[key] = round(avg_value, 1)
+        elif dv == 0 and avg_value == 0 : # Handle cases like 0 sodium DV if needed (though DV is non-zero)
+             percent_dv[key] = 0.0 
+             actual_values[key] = 0.0
+        else:
+            # Handle cases where DV isn't defined or is zero (shouldn't happen with above DVs)
+            percent_dv[key] = 0.0 # Or handle as error/skip
+            actual_values[key] = round(total_value, 1)
+            print(f"Warning: No Daily Value defined or DV is zero for {key}. Cannot calculate %DV.")
+            
+    # Separate Calories as it has a different unit (kcal) and scale
+    calories_percent_dv = percent_dv.pop("calories_100g", 0.0)
+    calories_actual = actual_values.pop("calories_100g", 0.0)
+    
+    # Prepare data for plotting (nutrients other than calories)
+    labels = list(percent_dv.keys())
+    # Clean labels for display
+    display_labels = [
+        l.replace('_100g', '').replace('_', ' ').capitalize() 
+        for l in labels
+    ] 
+    values = list(percent_dv.values())
 
-1. For each ingredient listed, use the given nutritional information (per 100g).
-2. If the API request failed or the nutritional info is unavailable for an ingredient, ignore it completely.
-3. Sum each nutritional column (e.g., calories, carbohydrates, fat, etc.) **across only the ingredients with available data**.
-4. After summing, divide each value by the number of ingredients that had valid data to get an average per 100g.
-5. Present the result ONLY as a single sentence in the format: "RECIPE_NAME contains approximately: X calories, Y carbohydrates, Z fat, ... per 100g." Do not include any other text, titles, or explanations.
-6. Use the recipe name: "Country White Bread or Dinner Rolls"
+    # --- 3. Color Coding ---
+    colors = []
+    # Define thresholds for %DV (adjust as needed)
+    # Green: <= 50% DV
+    # Orange: > 50% and <= 100% DV
+    # Red: > 100% DV
+    for v in values:
+        if v <= 50:
+            colors.append('forestgreen')
+        elif v <= 100:
+            colors.append('orange')
+        else:
+            colors.append('red')
 
-Here is the nutritional data (per 100g, from Open Food Facts):
+    # --- 4. Plotting ---
+    fig, ax = plt.subplots(figsize=(10, 6)) # Adjusted figure size
 
-water: API request failed
-egg: calories_100g: 725, carbohydrates_100g: 1.4, fat_100g: 79, proteins_100g: 1.1, saturated_fat_100g: 6.3, sodium_100g: 0.6, sugars_100g: 1.3
-vegetable: calories_100g: 675, carbohydrates_100g: 0.2, fat_100g: 75, fiber_100g: 0, proteins_100g: 0.1, saturated_fat_100g: 34, sodium_100g: 0.2, sugars_100g: 0
-oil: API request failed
-bread: API request failed
-flour: calories_100g: 116, carbohydrates_100g: 16.5, fat_100g: 5.1, fiber_100g: 0.1, proteins_100g: 1, saturated_fat_100g: 2.5, sodium_100g: 0.02, sugars_100g: 9.2
-sugar: calories_100g: 116, carbohydrates_100g: 16.5, fat_100g: 5.1, fiber_100g: 0.1, proteins_100g: 1, saturated_fat_100g: 2.5, sodium_100g: 0.02, sugars_100g: 9.2
-salt: carbohydrates_100g: 0, fat_100g: 0, fiber_100g: 0, proteins_100g: 0, saturated_fat_100g: 0, sodium_100g: 39.6, sugars_100g: 0
-instant: calories_100g: 515, carbohydrates_100g: 63, fat_100g: 26, fiber_100g: 1, proteins_100g: 7.1, saturated_fat_100g: 7.74, sodium_100g: 0.098, sugars_100g: 61
-yeast: calories_100g: 260, carbohydrates_100g: 30, fat_100g: 0.5, fiber_100g: 0, proteins_100g: 34, saturated_fat_100g: 0.1, sodium_100g: 4.32, sugars_100g: 1.2
-butter: calories_100g: 675, carbohydrates_100g: 0.2, fat_100g: 75, fiber_100g: 0, proteins_100g: 0.1, saturated_fat_100g: 34, sodium_100g: 0.2, sugars_100g: 0
-shortening: calories_100g: 368, carbohydrates_100g: 49.12, fat_100g: 17.54, fiber_100g: 1.8, proteins_100g: 5.26, saturated_fat_100g: 5.26, sodium_100g: 0.333, sugars_100g: 17.54
-"""
+    # Create horizontal bars
+    bars = ax.barh(display_labels, values, color=colors, height=0.6)
 
-# Use the client to generate content 
-response_text_gen = client.models.generate_content(
-    model="gemini-2.0-flash",
-    contents=nutritional_data_prompt
-)
+    # Add labels and title
+    ax.set_xlabel('% Daily Value (DV) - Based on sum of 100g of each ingredient')
+    ax.set_title('Accumulated Ingredient Nutrition (%DV)', fontsize=16)
+    ax.tick_params(axis='y', labelsize=10)
+    ax.tick_params(axis='x', labelsize=10)
 
-nutritional_summary_text = response_text_gen.candidates[0].content.parts[0].text
-print("Generated Nutritional Summary:")
-print(nutritional_summary_text)
-print("-" * 30)
+    # Add value labels on the bars
+    for i, bar in enumerate(bars):
+        width = bar.get_width()
+        # Get the actual gram/mg value for annotation
+        nutrient_key = labels[i]
+        actual_val = actual_values.get(nutrient_key, 0.0)
+        unit = 'mg' if nutrient_key == 'sodium_100g' else 'g'
+        if nutrient_key == 'sodium_100g':
+            actual_val *= 1000 # Convert sodium back to mg for display clarity
+            
+        label_text = f'{width:.1f}% ({actual_val:.1f} {unit})'
+        
+        # Position label - inside if bar is long enough, otherwise outside
+        x_pos = width + 1 if width < 90 else width - 1 # Adjust positioning threshold
+        ha = 'left' if width < 90 else 'right'
+        color = 'black' if width < 90 else 'white'
+
+        ax.text(x_pos, bar.get_y() + bar.get_height()/2., label_text,
+                ha=ha, va='center', color=color, fontsize=9, fontweight='bold')
+
+    # Add Calorie Information separately
+    cal_color = 'forestgreen' if calories_percent_dv <= 50 else ('orange' if calories_percent_dv <= 100 else 'red')
+    calorie_text = f'Estimated Calories Sum: {calories_actual:.0f} kcal ({calories_percent_dv:.1f}% DV)'
+    # Add text annotation for calories at the top or bottom
+    fig.text(0.5, 0.95, calorie_text, ha='center', va='top', fontsize=12, color=cal_color, fontweight='bold')
+
+    # Adjust layout and display
+    plt.gca().invert_yaxis() # Display top-to-bottom typically looks better
+    plt.tight_layout(rect=[0, 0, 1, 0.95]) # Adjust layout to prevent title overlap
+    plt.grid(axis='x', linestyle='--', alpha=0.6)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # Instead of plt.show(), you might want to save the figure in a web app context
+    # plt.savefig('nutrition_chart.png')
+    plt.show()
 
 
-# --- Part 2: Visualize the Nutritional Summary using Code Generation --- # Renamed section
 
-# Create a chat using client
-chat = client.chats.create(model="gemini-2.0-flash")
 
-# Construct the prompt to ask for code generation
-visualization_prompt = f"""
-You are given the following nutritional summary text:
-"{nutritional_summary_text}"
-
-Your task is to generate Python code that performs the following steps:
-1. Parses the text to extract the nutritional values (calories, carbohydrates, fat, fiber, proteins, saturated fat, sodium, sugars) and their corresponding amounts per 100g. Handle potential variations in nutrient names (e.g., 'proteins' vs 'protein').
-2. Creates a pandas DataFrame with two columns: 'Nutrient' and 'Amount (per 100g)'.
-3. Generates a bar chart using seaborn or matplotlib to visualize these nutritional amounts.
-4. Labels the x-axis 'Nutrient' and the y-axis 'Amount (per 100g)'.
-5. Adds a title to the plot, for example: "Nutritional Breakdown for [Recipe Name]". Extract the recipe name from the input text.
-6. Ensures the plot is displayed using `plt.show()`.
-7. Includes all necessary imports (pandas, seaborn, matplotlib.pyplot, re) within the generated code block.
-
-Output ONLY the complete Python code block required to perform these steps, enclosed in triple backticks (```python ... ```). Do not include any explanatory text before or after the code block.
-"""
-
-# Send the prompt to the chat session to generate the code
-response_viz = chat.send_message(
-    content=visualization_prompt,
-)
-
-# Extract and display the generated Python code block
-generated_code_text = response_viz.candidates[0].content.parts[0].text
-# Simple extraction assuming the model follows the ```python ... ``` format
-match = re.search(r"```python\n(.*)\n```", generated_code_text, re.DOTALL)
-if match:
-    generated_code = match.group(1).strip()
-    print("--- Generated Visualization Code ---")
-    # Display as a formatted code block if in an environment like Jupyter/Colab
-    try:
-        display(Code(generated_code, language='python'))
-    except NameError: # Fallback for non-IPython environments
-        print(generated_code)
-    print("-" * 30)
-else:
-    print("--- Model Response (Could not extract code block) ---")
-    # Display the raw response if extraction failed
-    display(Markdown(generated_code_text))
-    print("-" * 30)
+# Run the function with the example text
+extract_and_visualize_nutrition(response.text)
