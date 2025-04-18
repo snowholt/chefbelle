@@ -1,0 +1,41 @@
+---
+config:
+  theme: dark
+  layout: dagre
+---
+flowchart LR
+    START(("Start")) L_START_InputParserNode_0@--> InputParserNode["InputParserNode"]
+    InputParserNode L_InputParserNode_ToolExecutorNode_0@<-- route: tool --> ToolExecutorNode["ToolExecutorNode"]
+    InputParserNode L_InputParserNode_AggregateNutritionNode_0@-- route: nutrition --> AggregateNutritionNode["AggregateNutritionNode"]
+    InputParserNode L_InputParserNode_ReviewDashboardNode_0@-- route: reviews --> ReviewDashboardNode["ReviewDashboardNode"]
+    InputParserNode L_InputParserNode_ProcessCustomizationNode_0@-- route: customize --> ProcessCustomizationNode["ProcessCustomizationNode"]
+    InputParserNode L_InputParserNode_ResponseFormatterNode_0@-- route: chat/error --> ResponseFormatterNode["ResponseFormatterNode"]
+    AggregateNutritionNode L_AggregateNutritionNode_ResponseFormatterNode_0@--> ResponseFormatterNode
+    ReviewDashboardNode L_ReviewDashboardNode_ResponseFormatterNode_0@--> ResponseFormatterNode
+    ProcessCustomizationNode L_ProcessCustomizationNode_ResponseFormatterNode_0@--> ResponseFormatterNode
+    ResponseFormatterNode L_ResponseFormatterNode_VisualizeNutritionNode_0@-- if visualize --> VisualizeNutritionNode["VisualizeNutritionNode"]
+    VisualizeNutritionNode L_VisualizeNutritionNode_END_0@--> END(("End"))
+    ResponseFormatterNode L_ResponseFormatterNode_END_0@--> END
+    InputParserNode@{ shape: hex}
+    ResponseFormatterNode@{ shape: hex}
+    style START fill:#00C853,color:#FFFFFF,stroke:#FFFFFF
+    style InputParserNode stroke:#FFFFFF,fill:#E1BEE7,color:#000000
+    style ToolExecutorNode stroke:#FFFFFF,fill:#FF6D00,color:#FFFFFF
+    style AggregateNutritionNode color:#000000,stroke:#FFFFFF,fill:#FFF9C4
+    style ReviewDashboardNode stroke:#FFFFFF,fill:#BBDEFB,color:#000000
+    style ProcessCustomizationNode stroke:#FFFFFF,fill:#C8E6C9,color:#000000
+    style ResponseFormatterNode stroke:#FFFFFF,fill:#E1BEE7,color:#000000
+    style VisualizeNutritionNode stroke:#FFFFFF,fill:#FFCDD2,color:#000000
+    style END stroke:#FFFFFF,fill:#2962FF,color:#FFFFFF
+    L_START_InputParserNode_0@{ animation: fast } 
+    L_InputParserNode_ToolExecutorNode_0@{ animation: fast } 
+    L_InputParserNode_AggregateNutritionNode_0@{ animation: slow } 
+    L_InputParserNode_ReviewDashboardNode_0@{ animation: slow } 
+    L_InputParserNode_ProcessCustomizationNode_0@{ animation: slow } 
+    L_InputParserNode_ResponseFormatterNode_0@{ animation: fast } 
+    L_AggregateNutritionNode_ResponseFormatterNode_0@{ animation: slow } 
+    L_ReviewDashboardNode_ResponseFormatterNode_0@{ animation: slow } 
+    L_ProcessCustomizationNode_ResponseFormatterNode_0@{ animation: slow } 
+    L_ResponseFormatterNode_VisualizeNutritionNode_0@{ animation: slow } 
+    L_VisualizeNutritionNode_END_0@{ animation: slow } 
+    L_ResponseFormatterNode_END_0@{ animation: fast }
