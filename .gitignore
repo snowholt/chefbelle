@@ -30,3 +30,7 @@ ENV/
 # Large JSON files
 processed_recipes.json
 final/final/vector_db.zip
+datasets/cleaned_nutrition_dataset.csv
+datasets/interactions_test.csv
+datasets/interactions_validation.csv
+datasets/interactions_train.csv
