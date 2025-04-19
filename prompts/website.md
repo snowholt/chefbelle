@@ -8,7 +8,7 @@ Okay, let's craft the content and structure for your Capstone Project showcase w
 
 ---
 
-**Wix Website Structure Suggestion:**
+** Website Structure Suggestion:**
 
 A single-page scrolling website is often fastest to build and keeps the narrative flowing. Use Wix Sections for each part below.
 
@@ -31,7 +31,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 *   **Title:** From Fridge Dilemma to Delicious Dinner: An AI-Powered Kitchen Assistant
 *   **Subtitle:** Tackling food waste and mealtime stress with Generative AI. A Capstone Project from the Google Gen AI Intensive Course.
 *   **By:** Nariman Jafarieshlaghi & Neda Saberitabar (Code Enchantress & AI Integrators)
-*   *(Wix: Use a full-width banner, clear text overlays)*
+*   *(Use a full-width banner, clear text overlays)*
 
 **(2) The Problem: The "What Can I Cook?" Dilemma**
 
@@ -48,7 +48,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 >
 > The consequences? Perfectly good food spoils (over 30% globally!), mealtime becomes stressful, families overspend on take‑out, and culinary creativity is stifled.
 
-*(Wix: Use a text block, maybe alongside an image representing the problem - an overflowing fridge or confused cook).*
+*(Use a text block, maybe alongside an image representing the problem - an overflowing fridge or confused cook).*
 
 **(3) Our Solution: The Interactive Kitchen Assistant**
 
@@ -63,7 +63,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 > 5.  **Explore user reviews** and ratings for context.
 > 6.  **Interact via voice or text**, making it accessible while cooking.
 
-*(Wix: Use a text block, perhaps with feature icons or a simple diagram showing input -> AI Assistant -> Output).*
+*(Use a text block, perhaps with feature icons or a simple diagram showing input -> AI Assistant -> Output).*
 
 **(4) The AI Magic: How Gen AI Powers the Assistant**
 
@@ -76,7 +76,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 > *   **Factual & Up-to-Date:** Uses **Grounding** (Google Search) for general knowledge and fetches real-time data (**Structured Output/JSON**) from APIs for nutrition.
 > *   **Personalized & Evaluated:** Adapts suggestions (future: **Few-Shot Prompting**) and provides **evaluated** responses based on retrieved, structured data, not just hallucinations.
 
-*(Wix: Use a multi-column layout with icons and brief text for each capability highlighted).*
+*(Use a multi-column layout with icons and brief text for each capability highlighted).*
 
 **(5) Under the Hood: A Technical Deep Dive**
 
@@ -236,10 +236,10 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 > ai_response: AIMessage = llm_with_callable_tools.invoke(context_messages)
 > ```
 >
-> **f) Context Caching & Stateful Conversation:**
+> **f Context Caching & Stateful Conversation:**
 > LangGraph's state management (`KitchenState`) is key. The agent remembers the `selected_recipe_id` and `current_recipe_details` across turns, allowing follow-up questions like "show me the reviews" or "how do I make this vegan?" without the user needing to repeat the recipe ID.
 
-*(Wix: Use text blocks for explanations and code blocks for snippets. Use subheadings for each capability. Embed the graph PNG here if desired).*
+* Use text blocks for explanations and code blocks for snippets. Use subheadings for each capability. Embed the graph PNG here if desired).*
 
 **(6) Visual Highlights (Optional Section)**
 
@@ -258,7 +258,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 > *   **Context Length:** While LangGraph helps manage state, very long, complex conversations could still exceed the LLM's context window, potentially causing it to "forget" earlier details.
 > *   **Evaluation:** Measuring the "success" of a recipe suggestion or customization is subjective and requires user feedback loops, which weren't implemented in this phase.
 
-*(Wix: Use a text block, maybe with bullet points).*
+*(Use a text block, maybe with bullet points).*
 
 **(8) What's Next?: Future Possibilities**
 
@@ -279,7 +279,7 @@ A single-page scrolling website is often fastest to build and keeps the narrativ
 *   **Project:** Capstone for the Google Gen AI Intensive Course (March 31 - April 4, 2025).
 *   *(Optional: Add LinkedIn profile links or a brief bio)*
 
-*(Wix: Use a text block, maybe with profile pictures if available).*
+*(Use a text block, maybe with profile pictures if available).*
 
 ---
 
