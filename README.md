@@ -6,7 +6,7 @@
 
 Chefbelle is an innovative AI-powered kitchen assistant designed to tackle the everyday dilemma: **"What can I cook with the ingredients I actually have?"**. It moves beyond traditional recipe apps by understanding your available ingredients, dietary needs, and preferences to suggest personalized recipes and provide interactive cooking guidance.
 
-**Developers:** Nariman Jafarieshlaghi, Neda Saberitabar
+**Developers:** Nariman Jafarieshlaghi, Neda Saberitabar.
 
 ---
 
