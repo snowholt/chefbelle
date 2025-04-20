@@ -11,14 +11,7 @@ Task Requirements:
 - Clean the data by removing duplicates, normalizing ingredient names, and standardizing measurements.
 - Structure the data in pandas DataFrame format with columns: [recipe_id, title, ingredients, steps, cuisine_type, dietary_tags, cooking_time].
 
-Prompt:
-```
-Load the Food.com Recipes dataset and perform the following:
-1. Remove duplicate recipes and normalize ingredient names
-2. Extract and standardize cooking times and measurements
-3. Create dietary tags based on ingredient analysis (vegan, vegetarian, gluten-free, etc.)
-4. Structure as a clean DataFrame with columns: [recipe_id, title, ingredients, steps, cuisine_type, dietary_tags, cooking_time]
-```
+
 
 ---
 
@@ -35,14 +28,7 @@ Task Requirements:
 - Implement a local storage mechanism using Python dictionaries saved as JSON files.
 - Build a user confirmation flow that repeats back recognized commands and allows for corrections.
 
-Prompt:
-```
-Initialize audio processing with Google Cloud Speech-to-Text:
-- Convert audio input to text 
-- Implement a confirmation function that repeats back the understood command
-- Store user preferences in a local dictionary that persists between sessions
-- Parse the command to identify: action type (find recipe, list ingredients, etc.), ingredients mentioned, and any dietary restrictions
-```
+
 
 ---
 
@@ -58,17 +44,7 @@ Task Requirements:
 - Create a JSON schema for recipe customization output including modified ingredients, steps, and cooking times.
 - Reference techniques from "day-1-prompting.ipynb" for effective few-shot implementation.
 
-Prompt:
-```
-Create a few-shot prompt system with these example pairs:
-1. "I need a gluten-free version of this pasta recipe" → [structured output showing pasta alternatives]
-2. "Make this recipe low-sodium but still flavorful" → [structured output with salt alternatives]
-3. "I don't have eggs, what can I substitute?" → [structured output with egg replacements]
-4. "Convert this to an air fryer recipe" → [structured output with modified cooking method]
-5. "Make this recipe for 8 people instead of 4" → [structured output with doubled quantities]
 
-Return customized recipe in JSON format with modified ingredients, steps, and cooking time.
-```
 
 ---
 
@@ -84,14 +60,6 @@ Task Requirements:
 - Implement similarity search using Chroma to retrieve relevant recipes and cooking instructions.
 - Create a response generation system that combines retrieved information with the original query.
 
-Prompt:
-```
-For RAG implementation:
-1. Convert all recipes into embeddings using Google's text-embedding-004 model
-2. Store these embeddings in a Chroma vector database
-3. When a user asks a question, embed their query and retrieve the most relevant recipe chunks
-4. Generate a comprehensive answer that combines retrieved information with the question context
-```
 
 ---
 
@@ -112,14 +80,7 @@ Task Requirements:
 - Create an agent workflow that chains these functions based on user needs.
 - Implement error handling and recovery for failed function calls.
 
-Prompt:
-```
-Implement function declarations following the Gemini API function calling pattern:
-- Design each function to handle a specific recipe task
-- Create a decision tree for the agent to determine which functions to call based on user requests
-- Ensure proper error handling and allow the agent to recover from failed function calls
-- Return results in a consistent JSON format
-```
+
 
 ---
 
@@ -135,14 +96,7 @@ Task Requirements:
 - Create a presentation format for search results that includes sources and relevant snippets.
 - Ensure search results are properly integrated with locally stored information.
 
-Prompt:
-```
-Enable grounding with Google Search:
-- Trigger search when encountering unknown recipes, celebrity chef questions, or nutrition facts
-- Format search results with proper attribution to sources
-- Combine search results with the local recipe database information
-- Present a unified response that clearly distinguishes between stored knowledge and externally retrieved information
-```
+
 
 ---
 
@@ -160,15 +114,7 @@ Task Requirements:
 - Develop a test suite with sample user interactions covering both typical and edge cases.
 - Document the entire system architecture and explain all Gen AI capabilities used.
 
-Prompt:
-```
-Final system integration:
-1. Combine all components into a single coherent flow
-2. Create sample user interaction flows demonstrating the complete path from user query to recipe output
-3. Generate structured JSON output for machine readability and formatted text for human consumption
-4. Add basic visualizations for recipe components
-5. Document the architecture, highlighting the Gen AI capabilities used (Audio understanding, Few-shot prompting, Function calling, RAG, Grounding)
-```
+
 
 ## IMPLEMENTATION NOTES
 
