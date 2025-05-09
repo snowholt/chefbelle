@@ -10,6 +10,14 @@ Chefbelle is an innovative AI-powered kitchen assistant designed to tackle the e
 
 ---
 
+## 👨‍💻 Contributors
+
+- **Nariman Jafarieshlaghi** - Lead AI Engineer
+- **Neda Saberitabar** - Data Scientist & ML Engineer
+- **You?** - We welcome contributions! See our [contribution guidelines](#contributing) below.
+
+---
+
 ## 🍳 The Problem: The Everyday Kitchen Dilemma
 
 We've all been there: staring into the fridge at a random assortment of ingredients – half an onion, some leftover chicken, a lonely bell pepper – wondering what meal we can possibly create. Traditional recipe apps often assume a fully stocked pantry, offer rigid instructions, and don't adapt to specific needs or available time. This often leads to food waste, mealtime stress, and reliance on takeout.
